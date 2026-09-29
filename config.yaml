@@ -1,0 +1,27 @@
+# Globale Einstellungen. Nicht angegebene Werte kommen aus uiauto/config.py (DEFAULTS).
+
+window:
+  class: MozillaWindowClass     # Firefox
+  title_contains: ""            # z. B. Titel der App, falls mehrere Firefox-Fenster offen sind
+
+hotkeys:
+  stop: ctrl+alt+f12
+  pause: ctrl+alt+f11           # Pause / Weiter
+  record: ctrl+alt+f10          # Referenzbild aufnehmen
+
+matching:
+  threshold: 0.90               # 1.0 = pixelgleich
+  grayscale: true
+  timeout: 10                   # Sekunden Wartezeit auf ein Bild
+  precondition_timeout: 2
+
+human:
+  think_time: [0.4, 1.2]        # Pause vor jedem Schritt (s)
+  move_speed: 1.0               # < 1 langsamer, > 1 schneller
+  click_margin: 0.15            # äußere 15 % des Bildes werden nie geklickt
+  click_spread: 0.35            # Streuung um die Mitte
+  overshoot_chance: 0.25
+  hover_time: [0.08, 0.25]
+  click_hold: [0.05, 0.13]
+  typing_delay: [0.06, 0.20]
+  typing_pause_chance: 0.05

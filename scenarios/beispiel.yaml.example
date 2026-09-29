@@ -1,0 +1,32 @@
+# Beispiel-Sequenz. Kopieren als z. B. "sequenz1.yaml" und die Bildnamen anpassen.
+# Bildnamen sind relativ zum Ordner images/ (Aufnahme mit Strg+Alt+F10).
+
+name: Sequenz 1 – Neuen Eintrag anlegen
+hotkey: ctrl+alt+1
+
+# Optional: Abweichungen vom Benutzerverhalten in config.yaml, nur für diese Sequenz
+human:
+  think_time: [0.6, 1.5]
+
+# Wird zuerst geprüft. Stimmt der Ausgangszustand nicht, wird nichts geklickt.
+precondition:
+  - expect: start_uebersicht.png
+
+steps:
+  - click: neu_button.png
+  - wait_for: formular_titel.png
+    timeout: 15
+  - click: feld_name_label.png
+    offset: [150, 0]            # 150 px rechts neben der Beschriftung ins Eingabefeld
+    note: Namensfeld
+  - type: "Müller & Söhne GmbH"
+  - press: tab
+  - type: "info@example.de"
+  - move: bereich_liste.png     # Maus über die Liste, dann scrollen
+  - scroll: -3                  # 3 Rasten nach unten
+  - double_click: eintrag_zeile.png
+  - press: ctrl+s
+  - wait: [0.5, 1.5]            # zufällig zwischen 0,5 und 1,5 s
+  - expect: gespeichert_meldung.png
+  - expect_not: ladeanzeige.png
+    timeout: 20
