@@ -4,3 +4,6 @@ __pycache__/
 reports/
 logs/
 .claude/settings.local.json
+
+# Referenzbilder sind vertraulich und bleiben lokal
+images/*.png

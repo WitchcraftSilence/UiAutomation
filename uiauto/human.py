@@ -8,6 +8,7 @@
 """
 import math
 import random
+import re
 import time
 
 import pyautogui
@@ -26,11 +27,29 @@ def uniform(rng):
 
 # ---------------------------------------------------------------- Berechnung (ohne Seiteneffekte)
 
+_REL_OFFSET = re.compile(r"^\s*([-+]?\d+(?:\.\d+)?)\s*([wh])\s*$", re.IGNORECASE)
+
+
+def offset_px(value, w, h):
+    """Ein offset-Wert in Pixeln: Zahl = Pixel, '1.5h' = 1,5 × Bildhöhe, '-0.5w' = halbe Bildbreite nach links.
+
+    Wirft ValueError bei ungültiger Angabe.
+    """
+    if isinstance(value, bool):
+        raise ValueError(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    m = _REL_OFFSET.match(str(value))
+    if not m:
+        raise ValueError(value)
+    return float(m.group(1)) * (w if m.group(2).lower() == "w" else h)
+
+
 def click_point(match, human, offset=None):
-    """Zufälliger Klickpunkt innerhalb des Treffers."""
+    """Zufälliger Klickpunkt innerhalb des Treffers, bzw. relativ zu dessen Mitte bei offset."""
     if offset is not None:
-        cx = match.x + match.w / 2 + offset[0]
-        cy = match.y + match.h / 2 + offset[1]
+        cx = match.x + match.w / 2 + offset_px(offset[0], match.w, match.h)
+        cy = match.y + match.h / 2 + offset_px(offset[1], match.w, match.h)
         j = human["offset_jitter"]
         return round(cx + random.uniform(-j, j)), round(cy + random.uniform(-j, j))
 

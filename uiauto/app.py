@@ -39,6 +39,7 @@ class App:
         self.last_report = None
         self.state = "idle"
         self._run_thread = None
+        self._start_lock = threading.Lock()
         self._ui_queue = queue.Queue()
         self.hotkeys = None
 
@@ -86,6 +87,7 @@ class App:
         self.state = state
         self.icon.icon = _icon_image(COLORS[state])
         self.icon.title = f"UI-Automation – {TITLES[state]}"
+        self.icon.update_menu()     # Menüeinträge (aktiv/ausgegraut, Pause/Weiter) neu auswerten
 
     # ------------------------------------------------------------ Szenarien
 
@@ -99,14 +101,16 @@ class App:
         log.info("%d Szenarien geladen", len(self.scenarios))
 
     def start_scenario(self, scenario):
-        if self._run_thread and self._run_thread.is_alive():
-            self.notify("Läuft bereits", "Erst den laufenden Ablauf beenden oder abbrechen.")
-            return
+        # Hotkey- und Tray-Thread können gleichzeitig starten wollen
+        with self._start_lock:
+            if self._is_running():
+                self.notify("Läuft bereits", "Erst den laufenden Ablauf beenden oder abbrechen.")
+                return
+            self._set_state("running")
         self._run_thread = threading.Thread(target=self._run, args=(scenario,), daemon=True)
         self._run_thread.start()
 
     def _run(self, scenario):
-        self._set_state("running")
         try:
             result = self.runner.run(scenario)
             self.last_report = result.report_path
@@ -118,7 +122,6 @@ class App:
             self.notify("Interner Fehler", str(e)[:250])
         finally:
             self._set_state("idle")
-            self.icon.update_menu()
 
     def _on_pause_change(self, paused, reason):
         if self.state == "idle":
@@ -128,7 +131,9 @@ class App:
             self.notify("Pausiert", reason)
 
     def _is_running(self):
-        return bool(self._run_thread and self._run_thread.is_alive())
+        # Nach dem Zustand, nicht nach dem Thread: der lebt am Ende noch kurz weiter,
+        # während das Menü schon neu aufgebaut wird.
+        return self.state != "idle"
 
     # ------------------------------------------------------------ Hotkeys & Menü
 

@@ -1,0 +1,40 @@
+name: PvP
+hotkey: ctrl+alt+1
+
+# Eingespielter Ablauf: kaum Nachdenken, Reaktion wie bei einem erwarteten Dialog
+human:
+  think_time: [0.15, 0.35]      # Pause vor jedem Schritt (s), Standard [0.4, 1.2]
+  move_speed: 1.5               # Maus 1,5× schneller als normal
+  hover_time: [0.05, 0.12]      # kürzer über dem Knopf verweilen, Standard [0.08, 0.25]
+
+# Die Schritte laufen immer wieder, solange PvP1.png auftaucht.
+# Ist es 5 s lang nicht zu sehen, endet der Ablauf erfolgreich.
+# Erscheint PvP_End.png, endet der Ablauf sofort, egal an welcher Stelle der Runde.
+repeat:
+  while: PvP1.png
+  until: PvP_End.png
+  grayscale: false              # Start (orange) und Ende (grau) unterscheiden sich nur in der Farbe
+  timeout: 5
+  # max: 50                     # optional: höchstens so viele Runden
+
+steps:
+  - click: PvP1.png
+    offset: [0, 83]             # unterster der drei Knöpfe
+    note: unterer Knopf
+    grayscale: false            # nicht mit dem grauen End-Screen verwechseln
+  - wait_for: PvP2 EinheitenErsetzen R.png
+  - press: r
+  - wait_for: PvP3 Fight B.png
+  - press: b
+  - wait_for: PvP4 OK ESC.png
+    timeout: 30                 # Kampf kann dauern
+  - press: esc
+  - expect_not: PvP4 OK ESC.png   # warten, bis der Dialog wirklich zu ist
+    note: Dialog geschlossen
+  - if_seen: pvp5 Optional ESC.png  # kommt nur manchmal
+    timeout: 3                  # so lange wird höchstens darauf gewartet
+    skip_if: PvP1.png           # ist schon der nächste Start-Screen da, kommt pvp5 nicht mehr
+    then:
+      - press: esc
+      - expect_not: pvp5 Optional ESC.png
+  - wait: [0.02, 0.13]            # kurz durchatmen, bevor die nächste Runde startet

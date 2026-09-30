@@ -5,6 +5,9 @@ from pathlib import Path
 import pyautogui
 import yaml
 
+from .config import DEFAULTS
+from .human import offset_px
+
 # Aktion -> ob der Wert ein Bildname ist
 ACTIONS = {
     "click": True,
@@ -14,12 +17,15 @@ ACTIONS = {
     "wait_for": True,
     "expect": True,
     "expect_not": True,
+    "if_seen": True,        # führt 'then' nur aus, wenn das Bild erscheint
+    "first_seen": False,    # Liste von {if: bild, then: [...]}: das zuerst erscheinende Bild gewinnt
     "type": False,
     "press": False,
     "scroll": False,
     "wait": False,
+    "end": False,           # beendet den Ablauf sofort erfolgreich; Wert = optionaler Grund
 }
-OPTIONS = {"timeout", "threshold", "offset", "times", "note"}
+OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if"}
 
 
 class ScenarioError(Exception):
@@ -33,7 +39,12 @@ class Step:
     options: dict = field(default_factory=dict)
 
     def describe(self):
-        text = f"{self.action}: {self.value}"
+        if self.action == "end" and self.value is None:
+            text = "end"
+        elif self.action == "first_seen":
+            text = "first_seen: " + " | ".join(c["if"] for c in self.value)
+        else:
+            text = f"{self.action}: {self.value}"
         if self.options.get("note"):
             text += f"  ({self.options['note']})"
         return text
@@ -45,17 +56,24 @@ class Scenario:
     path: Path
     hotkey: str = ""
     human: dict = field(default_factory=dict)
+    matching: dict = field(default_factory=dict)   # überschreibt matching aus config.yaml
     precondition: list = field(default_factory=list)
     steps: list = field(default_factory=list)
+    repeat: dict = None     # {"while", "until", "grayscale", "timeout", "threshold", "max"}; None = einmal
 
 
 def _parse_step(raw, where, images_dir):
+    if raw == "end":            # Kurzform "- end"
+        raw = {"end": None}
     if not isinstance(raw, dict):
         raise ScenarioError(f"{where}: Schritt muss ein Eintrag 'aktion: wert' sein, nicht {raw!r}")
     actions = [k for k in raw if k in ACTIONS]
     unknown = [k for k in raw if k not in ACTIONS and k not in OPTIONS]
     if unknown:
         raise ScenarioError(f"{where}: unbekannt: {', '.join(unknown)}")
+    if not actions and raw:
+        raise ScenarioError(f"{where}: keine Aktion, nur {', '.join(raw)}. Gehört das zum Schritt davor oder "
+                            f"danach? Dann ohne '-' unter diesen Schritt einrücken.")
     if len(actions) != 1:
         raise ScenarioError(f"{where}: genau eine Aktion erwartet, gefunden: {actions or 'keine'}")
     action = actions[0]
@@ -73,9 +91,90 @@ def _parse_step(raw, where, images_dir):
         raise ScenarioError(f"{where}: wait erwartet Sekunden oder [min, max]")
     if action == "scroll" and not isinstance(value, int):
         raise ScenarioError(f"{where}: scroll erwartet ganze Zahl (Rasten, negativ = nach unten)")
-    if "offset" in options and not (isinstance(options["offset"], list) and len(options["offset"]) == 2):
-        raise ScenarioError(f"{where}: offset erwartet [dx, dy]")
+    if "offset" in options:
+        off = options["offset"]
+        try:
+            if not (isinstance(off, list) and len(off) == 2):
+                raise ValueError(off)
+            for v in off:
+                offset_px(v, 1, 1)
+        except ValueError:
+            raise ScenarioError(f"{where}: offset erwartet [dx, dy] in Pixeln oder relativ wie [0, 1.5h]") from None
+    has_image = ACTIONS[action] or action == "first_seen"
+    if "grayscale" in options and not (has_image and isinstance(options["grayscale"], bool)):
+        raise ScenarioError(f"{where}: grayscale erwartet true/false und gilt nur für Aktionen mit Bild")
+    if action == "if_seen":
+        then = options.get("then")
+        if not isinstance(then, list) or not then:
+            raise ScenarioError(f"{where}: if_seen erwartet eine Liste von Schritten unter 'then'")
+        options["then"] = [_parse_step(r, f"{where} / then #{j + 1}", images_dir)
+                           for j, r in enumerate(then)]
+        if "skip_if" in options and not (images_dir / str(options["skip_if"])).exists():
+            raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(options['skip_if'])}")
+    elif action == "first_seen":
+        value = _parse_cases(value, where, images_dir)
+    if action != "if_seen" and ("then" in options or "skip_if" in options):
+        raise ScenarioError(f"{where}: 'then' und 'skip_if' gibt es nur bei if_seen")
     return Step(action, value, options)
+
+
+def _parse_cases(raw, where, images_dir):
+    """first_seen: [{if: bild, then: [schritte], grayscale: bool?}, ...]"""
+    if not isinstance(raw, list) or len(raw) < 2:
+        raise ScenarioError(f"{where}: first_seen erwartet mindestens zwei Einträge '- if: bild.png' mit 'then:'")
+    cases = []
+    for k, case in enumerate(raw):
+        w = f"{where} / Fall #{k + 1}"
+        if not isinstance(case, dict) or "if" not in case:
+            raise ScenarioError(f"{w}: erwartet 'if: bild.png' und 'then:'")
+        unknown = set(case) - {"if", "then", "grayscale"}
+        if unknown:
+            raise ScenarioError(f"{w}: unbekannt: {', '.join(sorted(unknown))}")
+        image = str(case["if"])
+        if not (images_dir / image).exists():
+            raise ScenarioError(f"{w}: Bild nicht gefunden: {images_dir / image}")
+        if not isinstance(case.get("grayscale", True), bool):
+            raise ScenarioError(f"{w}: grayscale erwartet true/false")
+        then = case.get("then") or []
+        if not isinstance(then, list):
+            raise ScenarioError(f"{w}: then erwartet eine Liste von Schritten")
+        cases.append({"if": image, "grayscale": case.get("grayscale"),
+                      "then": [_parse_step(r, f"{w} / then #{j + 1}", images_dir) for j, r in enumerate(then)]})
+    return cases
+
+
+def _parse_matching(raw, where):
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise ScenarioError(f"{where}: erwartet Einträge wie 'grayscale: false'")
+    unknown = set(raw) - set(DEFAULTS["matching"])
+    if unknown:
+        raise ScenarioError(f"{where}: unbekannt: {', '.join(sorted(unknown))}")
+    return raw
+
+
+def _parse_repeat(raw, where, images_dir):
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or "while" not in raw:
+        raise ScenarioError(f"{where}: repeat erwartet mindestens 'while: bild.png'")
+    unknown = set(raw) - {"while", "until", "timeout", "threshold", "max", "grayscale"}
+    if unknown:
+        raise ScenarioError(f"{where}: unbekannt: {', '.join(sorted(unknown))}")
+    image = str(raw["while"])
+    until = str(raw["until"]) if raw.get("until") else None
+    for img in filter(None, (image, until)):
+        if not (images_dir / img).exists():
+            raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
+    max_rounds = raw.get("max", 0)
+    if not isinstance(max_rounds, int) or max_rounds < 0:
+        raise ScenarioError(f"{where}: max erwartet eine ganze Zahl >= 0 (0 = unbegrenzt)")
+    if not isinstance(raw.get("grayscale", True), bool):
+        raise ScenarioError(f"{where}: grayscale erwartet true/false")
+    return {"while": image, "until": until, "grayscale": raw.get("grayscale"),
+            "timeout": float(raw.get("timeout", 5)),
+            "threshold": raw.get("threshold"), "max": max_rounds}
 
 
 def load(path, images_dir):
@@ -96,8 +195,10 @@ def load(path, images_dir):
         path=path,
         hotkey=str(data.get("hotkey", "") or ""),
         human=data.get("human") or {},
+        matching=_parse_matching(data.get("matching"), f"{path.name} / matching"),
         precondition=parse_list("precondition"),
         steps=parse_list("steps"),
+        repeat=_parse_repeat(data.get("repeat"), f"{path.name} / repeat", images_dir),
     )
     if not scenario.steps:
         raise ScenarioError(f"{path.name}: keine Schritte (steps) definiert")

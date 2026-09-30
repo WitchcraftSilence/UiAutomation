@@ -16,12 +16,12 @@ matching:
   precondition_timeout: 2
 
 human:
-  think_time: [0.4, 1.2]        # Pause vor jedem Schritt (s)
+  think_time: [0.1, 0.25]        # Pause vor jedem Schritt (s)
   move_speed: 1.0               # < 1 langsamer, > 1 schneller
   click_margin: 0.15            # äußere 15 % des Bildes werden nie geklickt
   click_spread: 0.35            # Streuung um die Mitte
   overshoot_chance: 0.25
   hover_time: [0.08, 0.25]
   click_hold: [0.05, 0.13]
-  typing_delay: [0.06, 0.20]
+  typing_delay: [0.06, 0.15]
   typing_pause_chance: 0.05

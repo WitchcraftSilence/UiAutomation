@@ -32,15 +32,18 @@ class Matcher:
             self._cache[key] = screen.imread(path)
         return self._cache[key]
 
-    def find(self, name, region, threshold, shot=None):
-        """Bester Treffer im Bereich oder None. shot = bereits gemachter Screenshot von region."""
+    def find(self, name, region, threshold, shot=None, grayscale=None):
+        """Bester Treffer im Bereich oder None. shot = bereits gemachter Screenshot von region.
+
+        grayscale=None nimmt die Voreinstellung; False vergleicht in Farbe.
+        """
         tpl = self.template(name)
         if shot is None:
             shot = screen.grab(region)
         th, tw = tpl.shape[:2]
         if shot.shape[0] < th or shot.shape[1] < tw:
             return None
-        if self.grayscale:
+        if self.grayscale if grayscale is None else grayscale:
             hay = cv2.cvtColor(shot, cv2.COLOR_BGR2GRAY)
             needle = cv2.cvtColor(tpl, cv2.COLOR_BGR2GRAY)
         else:
@@ -51,7 +54,7 @@ class Matcher:
             return None
         return Match(region[0] + loc[0], region[1] + loc[1], tw, th, float(score))
 
-    def best_score(self, name, region, shot=None):
+    def best_score(self, name, region, shot=None, grayscale=None):
         """Nur für Fehlermeldungen: wie nah war der beste Kandidat?"""
-        m = self.find(name, region, threshold=-1.0, shot=shot)
+        m = self.find(name, region, threshold=-1.0, shot=shot, grayscale=grayscale)
         return m.score if m else 0.0

@@ -22,6 +22,18 @@ class StepFailed(Exception):
         self.match_region = match_region
 
 
+class EndReached(Exception):
+    """Endbild (repeat/until) erschienen oder end-Schritt erreicht: der Ablauf endet erfolgreich."""
+
+
+class NotSeen(Exception):
+    """if_seen: Bild ist nicht erschienen, die then-Schritte entfallen."""
+
+    def __init__(self, reason="nicht erschienen"):
+        super().__init__(reason)
+        self.reason = reason
+
+
 @dataclass
 class StepResult:
     phase: str
@@ -31,6 +43,7 @@ class StepResult:
     duration: float = 0.0
     detail: str = ""
     screenshot: str = ""
+    then: list = None       # if_seen/first_seen: danach auszuführende Schritte
 
 
 @dataclass
@@ -49,8 +62,10 @@ class Runner:
         self.cfg = cfg
         self.control = control
         self.notify = notify
-        self.matcher = Matcher(cfg["paths"]["images"], cfg["matching"]["grayscale"])
+        self.matching = cfg["matching"]     # je Ablauf ggf. durch das Szenario überschrieben
+        self.matcher = Matcher(cfg["paths"]["images"], self.matching["grayscale"])
         self.hwnd = None
+        self._end = None        # find()-Argumente für repeat/until, wird bei jeder Bildsuche mitgeprüft
 
     # ------------------------------------------------------------ Hilfsfunktionen
 
@@ -61,33 +76,65 @@ class Runner:
         window.activate(self.hwnd)
         time.sleep(0.2)
 
-    def _wait_image(self, name, timeout, threshold, present=True):
+    def _wait_image(self, name, timeout, threshold, present=True, grayscale=None, skip_if=None):
+        """Wartet, bis das Bild erscheint (bzw. bei present=False verschwindet).
+
+        skip_if: zweites Bild; ist es zu sehen (und name nicht), wird NotSeen geworfen.
+        """
         region = self._region()
         end = time.perf_counter() + timeout
         while True:
             self.control.check()
             shot = screen.grab(region)
-            m = self.matcher.find(name, region, threshold, shot=shot)
+            if self._end and self.matcher.find(region=region, shot=shot, **self._end):
+                raise EndReached(f"Endbild '{self._end['name']}' erkannt")
+            m = self.matcher.find(name, region, threshold, shot=shot, grayscale=grayscale)
             if (m is not None) == present:
                 return m
+            if skip_if and self.matcher.find(skip_if, region, threshold, shot=shot):
+                raise NotSeen(f"nicht erschienen, stattdessen '{skip_if}' sichtbar")
             if time.perf_counter() >= end:
                 if present:
-                    best = self.matcher.best_score(name, region, shot=shot)
+                    best = self.matcher.best_score(name, region, shot=shot, grayscale=grayscale)
                     raise StepFailed(f"Bild '{name}' nicht gefunden nach {timeout:.1f} s "
                                      f"(beste Übereinstimmung {best:.2f}, Schwelle {threshold:.2f})")
                 raise StepFailed(f"Bild '{name}' ist nach {timeout:.1f} s immer noch sichtbar "
                                  f"(Übereinstimmung {m.score:.2f})", (m.x, m.y, m.w, m.h))
-            self.control.sleep(self.cfg["matching"]["poll_interval"])
+            self.control.sleep(self.matching["poll_interval"])
+            region = self._region()
+
+    def _wait_first(self, cases, timeout, threshold, grayscale=None):
+        """Wartet, bis eines der Bilder erscheint. Gibt (fall, treffer) zurück; bei Gleichstand gewinnt der erste Fall."""
+        region = self._region()
+        end = time.perf_counter() + timeout
+        while True:
+            self.control.check()
+            shot = screen.grab(region)
+            if self._end and self.matcher.find(region=region, shot=shot, **self._end):
+                raise EndReached(f"Endbild '{self._end['name']}' erkannt")
+            for case in cases:
+                gs = grayscale if case["grayscale"] is None else case["grayscale"]
+                m = self.matcher.find(case["if"], region, threshold, shot=shot, grayscale=gs)
+                if m:
+                    return case, m
+            if time.perf_counter() >= end:
+                scores = ", ".join(
+                    f"'{c['if']}' {self.matcher.best_score(c['if'], region, shot=shot, grayscale=grayscale if c['grayscale'] is None else c['grayscale']):.2f}"
+                    for c in cases)
+                raise StepFailed(f"Keines der Bilder erschienen nach {timeout:.1f} s "
+                                 f"(beste Übereinstimmungen: {scores}; Schwelle {threshold:.2f})")
+            self.control.sleep(self.matching["poll_interval"])
             region = self._region()
 
     def _execute(self, step, human, default_timeout):
         opts = step.options
         timeout = float(opts.get("timeout", default_timeout))
-        threshold = float(opts.get("threshold", self.cfg["matching"]["threshold"]))
+        threshold = float(opts.get("threshold", self.matching["threshold"]))
+        gs = opts.get("grayscale")
         a, v = step.action, step.value
 
         if a in ("click", "double_click", "right_click", "move"):
-            m = self._wait_image(v, timeout, threshold)
+            m = self._wait_image(v, timeout, threshold, grayscale=gs)
             x, y = click_point(m, human.cfg, opts.get("offset"))
             size = min(m.w, m.h)
             if a == "move":
@@ -99,10 +146,21 @@ class Runner:
                             target_size=size)
             return f"Treffer {m.score:.2f}, geklickt bei ({x}, {y})"
         if a in ("wait_for", "expect"):
-            m = self._wait_image(v, timeout, threshold)
+            m = self._wait_image(v, timeout, threshold, grayscale=gs)
             return f"Treffer {m.score:.2f} bei ({m.x}, {m.y})"
+        if a == "if_seen":
+            try:
+                m = self._wait_image(v, timeout, threshold, grayscale=gs, skip_if=opts.get("skip_if"))
+            except StepFailed:
+                raise NotSeen() from None
+            return f"erschienen (Treffer {m.score:.2f})", opts["then"]
+        if a == "first_seen":
+            case, m = self._wait_first(v, timeout, threshold, grayscale=gs)
+            return f"'{case['if']}' erschienen (Treffer {m.score:.2f})", case["then"]
+        if a == "end":
+            raise EndReached(f"Ende: {v}" if v not in (None, True) else "end-Schritt erreicht")
         if a == "expect_not":
-            self._wait_image(v, timeout, threshold, present=False)
+            self._wait_image(v, timeout, threshold, present=False, grayscale=gs)
             return "nicht sichtbar"
         if a == "type":
             human.type_text(str(v))
@@ -135,18 +193,137 @@ class Runner:
 
     # ------------------------------------------------------------ Ablauf
 
+    @staticmethod
+    def _set_aborted(result, sr, e):
+        sr.status = result.status = "aborted"
+        result.message = ("Not-Aus (Maus in Bildschirmecke)"
+                          if isinstance(e, pyautogui.FailSafeException) else "Vom Benutzer abgebrochen")
+
+    def _run_step(self, result, run_dir, human, phase, idx, step, is_pre):
+        """Einen Schritt ausführen und protokollieren. Gibt das StepResult zurück."""
+        sr = StepResult(phase, idx, step.describe())
+        result.steps.append(sr)
+        default_timeout = self.matching["precondition_timeout" if is_pre else "timeout"]
+        t0 = time.perf_counter()
+        try:
+            while True:
+                try:
+                    if not is_pre:
+                        human.think()
+                    out = self._execute(step, human, default_timeout)
+                    sr.detail, sr.then = out if isinstance(out, tuple) else (out, None)
+                    break
+                except UserInterference:
+                    log.info("Mausbewegung durch Benutzer erkannt, pausiere")
+                    self.control.pause("Maus wurde bewegt. Weiter mit Pause-Hotkey oder Tray-Menü.")
+                    self.control.check()   # blockiert bis Weiter oder Stopp
+            sr.status = "ok"
+        except NotSeen as e:
+            sr.status, sr.detail = "ok", f"{e.reason}, übersprungen"
+        except EndReached as e:
+            sr.status, sr.detail = "ok", f"{e}, Ablauf beendet"
+            raise
+        except StepFailed as e:
+            sr.status, sr.detail = "fail", str(e)
+            sr.screenshot = self._failure_screenshot(run_dir, f"fehler_{phase}_{idx}.png", e.match_region)
+            result.status = "fail"
+            if is_pre:
+                prefix = "Startzustand stimmt nicht: "
+            elif phase == "Ablauf":
+                prefix = f"Schritt {idx}: "
+            else:
+                prefix = f"{phase}, Schritt {idx}: "
+            result.message = prefix + str(e)
+        except (Aborted, pyautogui.FailSafeException) as e:
+            self._set_aborted(result, sr, e)
+        except Exception as e:
+            log.exception("Unerwarteter Fehler")
+            sr.status, sr.detail = "fail", f"{type(e).__name__}: {e}"
+            result.status, result.message = "fail", sr.detail
+        finally:
+            sr.duration = time.perf_counter() - t0
+            log.info("[%s %s] %s -> %s %s", phase, idx, sr.description, sr.status, sr.detail)
+        return sr
+
+    def _run_list(self, result, run_dir, human, phase, steps, is_pre=False, prefix=""):
+        """Schritte nacheinander ausführen; nach einem Fehler folgen die übrigen als übersprungen.
+
+        prefix nummeriert verschachtelte Schritte (if_seen/first_seen), z. B. "8." -> 8.1, 8.2.
+        """
+        for i, step in enumerate(steps):
+            sr = self._run_step(result, run_dir, human, phase, f"{prefix}{i + 1}", step, is_pre)
+            ok = sr.status == "ok"
+            if ok and sr.then:
+                ok = self._run_list(result, run_dir, human, phase, sr.then, is_pre,
+                                    prefix=f"{prefix}{i + 1}.")
+            if not ok:
+                result.steps += [StepResult(phase, f"{prefix}{n}", s.describe())
+                                 for n, s in enumerate(steps[i + 1:], start=i + 2)]
+                return False
+        return True
+
+    def _run_rounds(self, result, run_dir, human, scenario):
+        """Schritte wiederholen, solange das while-Bild erscheint und das until-Bild nicht."""
+        rep = scenario.repeat
+        threshold = float(rep["threshold"] or self.matching["threshold"])
+        self._end = (dict(name=rep["until"], threshold=threshold, grayscale=rep["grayscale"])
+                     if rep["until"] else None)
+        try:
+            self._round_loop(result, run_dir, human, scenario, threshold)
+        except EndReached as e:
+            log.info("%s", e)
+            result.message = f"{e} in {result.steps[-1].phase}, Ablauf beendet."
+        finally:
+            self._end = None
+
+    def _round_loop(self, result, run_dir, human, scenario, threshold):
+        rep = scenario.repeat
+        rounds = 0
+        while not rep["max"] or rounds < rep["max"]:
+            phase = f"Runde {rounds + 1}"
+            sr = StepResult(phase, 0, f"while: {rep['while']}")
+            result.steps.append(sr)
+            t0 = time.perf_counter()
+            try:
+                m = self._wait_image(rep["while"], rep["timeout"], threshold, grayscale=rep["grayscale"])
+            except StepFailed:
+                m = None
+            except EndReached as e:
+                sr.status, sr.detail = "ok", f"{e}, Ablauf beendet"
+                raise
+            except (Aborted, pyautogui.FailSafeException) as e:
+                self._set_aborted(result, sr, e)
+                return
+            finally:
+                sr.duration = time.perf_counter() - t0
+
+            if m is None:
+                if rounds == 0:
+                    sr.status, sr.detail = "fail", f"Bild '{rep['while']}' nicht gefunden"
+                    sr.screenshot = self._failure_screenshot(run_dir, "fehler_Runde_1.png")
+                    result.status = "fail"
+                    result.message = f"Wiederholung: {sr.detail}, keine einzige Runde ausgeführt."
+                    return
+                sr.status, sr.detail = "ok", "nicht mehr sichtbar, Wiederholung beendet"
+                result.message = f"{rounds} Runden erfolgreich, danach war '{rep['while']}' nicht mehr sichtbar."
+                return
+            sr.status, sr.detail = "ok", f"Treffer {m.score:.2f}"
+            log.info("[%s] %s gefunden, starte Runde", phase, rep["while"])
+            rounds += 1
+            if not self._run_list(result, run_dir, human, phase, scenario.steps):
+                return
+        result.message = f"{rounds} Runden erfolgreich (Höchstzahl erreicht)."
+
     def run(self, scenario):
         human_cfg = config.merged_human(self.cfg, scenario.human)
         human = Human(self.control, human_cfg)
+        self.matching = {**self.cfg["matching"], **scenario.matching}
+        self.matcher.grayscale = self.matching["grayscale"]
         result = RunResult(scenario.name, datetime.now())
         safe_name = re.sub(r"[^\w\-]+", "_", scenario.name)
         run_dir = self.cfg["paths"]["reports"] / f"{result.started:%Y%m%d_%H%M%S}_{safe_name}"
         run_dir.mkdir(parents=True, exist_ok=True)
         t_start = time.perf_counter()
-
-        planned = ([("Startzustand", i + 1, s) for i, s in enumerate(scenario.precondition)]
-                   + [("Ablauf", i + 1, s) for i, s in enumerate(scenario.steps)])
-        result.steps = [StepResult(phase, idx, s.describe()) for phase, idx, s in planned]
 
         def on_resume():
             human.forget_position()
@@ -163,46 +340,19 @@ class Runner:
         except window.WindowError as e:
             result.status, result.message = "fail", str(e)
         else:
-            for (phase, idx, step), sr in zip(planned, result.steps):
-                is_pre = phase == "Startzustand"
-                default_timeout = self.cfg["matching"]["precondition_timeout" if is_pre else "timeout"]
-                t0 = time.perf_counter()
-                try:
-                    while True:
-                        try:
-                            if not is_pre:
-                                human.think()
-                            sr.detail = self._execute(step, human, default_timeout)
-                            break
-                        except UserInterference:
-                            log.info("Mausbewegung durch Benutzer erkannt, pausiere")
-                            self.control.pause("Maus wurde bewegt. Weiter mit Pause-Hotkey oder Tray-Menü.")
-                            self.control.check()   # blockiert bis Weiter oder Stopp
-                    sr.status = "ok"
-                except StepFailed as e:
-                    sr.status, sr.detail = "fail", str(e)
-                    sr.screenshot = self._failure_screenshot(run_dir, f"fehler_{phase}_{idx}.png", e.match_region)
-                    result.status = "fail"
-                    result.message = ("Startzustand stimmt nicht: " if is_pre else f"Schritt {idx}: ") + str(e)
-                except (Aborted, pyautogui.FailSafeException) as e:
-                    sr.status = "aborted"
-                    result.status = "aborted"
-                    result.message = ("Not-Aus (Maus in Bildschirmecke)"
-                                      if isinstance(e, pyautogui.FailSafeException) else "Vom Benutzer abgebrochen")
-                except Exception as e:
-                    log.exception("Unerwarteter Fehler")
-                    sr.status, sr.detail = "fail", f"{type(e).__name__}: {e}"
-                    result.status, result.message = "fail", sr.detail
-                finally:
-                    sr.duration = time.perf_counter() - t0
-                    log.info("[%s %d] %s -> %s %s", phase, idx, sr.description, sr.status, sr.detail)
-                if sr.status != "ok":
-                    break
+            try:
+                if self._run_list(result, run_dir, human, "Startzustand", scenario.precondition, is_pre=True):
+                    if scenario.repeat:
+                        self._run_rounds(result, run_dir, human, scenario)
+                    elif self._run_list(result, run_dir, human, "Ablauf", scenario.steps):
+                        result.message = f"Alle {len(scenario.steps)} Schritte erfolgreich."
+                elif not scenario.repeat:
+                    result.steps += [StepResult("Ablauf", i + 1, s.describe()) for i, s in enumerate(scenario.steps)]
+            except EndReached as e:   # end-Schritt ohne repeat
+                result.message = f"{e}, Ablauf beendet."
 
         self.control.on_resume = None
         result.duration = time.perf_counter() - t_start
-        if result.status == "ok":
-            result.message = f"Alle {len(scenario.steps)} Schritte erfolgreich."
         result.report_path = run_dir / "bericht.html"
         report.write(result, result.report_path)
         log.info("Szenario '%s' beendet: %s – %s", scenario.name, result.status, result.message)
