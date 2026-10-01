@@ -23,7 +23,14 @@ class StepFailed(Exception):
 
 
 class EndReached(Exception):
-    """Endbild (repeat/until) erschienen oder end-Schritt erreicht: der Ablauf endet erfolgreich."""
+    """Endbild (repeat/until) erschienen oder end-Schritt erreicht.
+
+    owner = Kennung der Schleife, deren until-Bild erschienen ist; None beim end-Schritt.
+    """
+
+    def __init__(self, reason, owner=None):
+        super().__init__(reason)
+        self.owner = owner
 
 
 class NotSeen(Exception):
@@ -65,7 +72,7 @@ class Runner:
         self.matching = cfg["matching"]     # je Ablauf ggf. durch das Szenario überschrieben
         self.matcher = Matcher(cfg["paths"]["images"], self.matching["grayscale"])
         self.hwnd = None
-        self._end = None        # find()-Argumente für repeat/until, wird bei jeder Bildsuche mitgeprüft
+        self._ends = []         # (schleife, find()-Argumente) je until-Bild, bei jeder Bildsuche mitgeprüft
 
     # ------------------------------------------------------------ Hilfsfunktionen
 
@@ -86,8 +93,9 @@ class Runner:
         while True:
             self.control.check()
             shot = screen.grab(region)
-            if self._end and self.matcher.find(region=region, shot=shot, **self._end):
-                raise EndReached(f"Endbild '{self._end['name']}' erkannt")
+            for owner, end_args in self._ends:
+                if self.matcher.find(region=region, shot=shot, **end_args):
+                    raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
             m = self.matcher.find(name, region, threshold, shot=shot, grayscale=grayscale)
             if (m is not None) == present:
                 return m
@@ -110,8 +118,9 @@ class Runner:
         while True:
             self.control.check()
             shot = screen.grab(region)
-            if self._end and self.matcher.find(region=region, shot=shot, **self._end):
-                raise EndReached(f"Endbild '{self._end['name']}' erkannt")
+            for owner, end_args in self._ends:
+                if self.matcher.find(region=region, shot=shot, **end_args):
+                    raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
             for case in cases:
                 gs = grayscale if case["grayscale"] is None else case["grayscale"]
                 m = self.matcher.find(case["if"], region, threshold, shot=shot, grayscale=gs)
@@ -221,7 +230,7 @@ class Runner:
         except NotSeen as e:
             sr.status, sr.detail = "ok", f"{e.reason}, übersprungen"
         except EndReached as e:
-            sr.status, sr.detail = "ok", f"{e}, Ablauf beendet"
+            sr.status, sr.detail = "ok", str(e)
             raise
         except StepFailed as e:
             sr.status, sr.detail = "fail", str(e)
@@ -251,6 +260,14 @@ class Runner:
         prefix nummeriert verschachtelte Schritte (if_seen/first_seen), z. B. "8." -> 8.1, 8.2.
         """
         for i, step in enumerate(steps):
+            if step.action == "repeat":     # verschachtelte Schleife
+                ok = self._run_rounds(result, run_dir, human, step.value, step.options["steps"],
+                                      phase, f"{prefix}{i + 1}", nested=True)
+                if not ok:
+                    result.steps += [StepResult(phase, f"{prefix}{n}", s.describe())
+                                     for n, s in enumerate(steps[i + 1:], start=i + 2)]
+                    return False
+                continue
             sr = self._run_step(result, run_dir, human, phase, f"{prefix}{i + 1}", step, is_pre)
             ok = sr.status == "ok"
             if ok and sr.then:
@@ -262,57 +279,70 @@ class Runner:
                 return False
         return True
 
-    def _run_rounds(self, result, run_dir, human, scenario):
-        """Schritte wiederholen, solange das while-Bild erscheint und das until-Bild nicht."""
-        rep = scenario.repeat
+    def _run_rounds(self, result, run_dir, human, rep, steps, phase="", prefix="", nested=False):
+        """Schritte in Runden wiederholen, solange ein while-Bild erscheint und das until-Bild nicht.
+
+        Auf oberster Ebene (repeat der Sequenz) beendet until den ganzen Ablauf und ein fehlendes
+        while-Bild vor Runde 1 ist ein Fehler. Verschachtelt (repeat-Schritt) beendet until nur
+        diese Schleife, und null Runden sind in Ordnung. Gibt True zurück, wenn es weitergehen kann.
+        """
         threshold = float(rep["threshold"] or self.matching["threshold"])
-        self._end = (dict(name=rep["until"], threshold=threshold, grayscale=rep["grayscale"])
-                     if rep["until"] else None)
-        try:
-            self._round_loop(result, run_dir, human, scenario, threshold)
-        except EndReached as e:
-            log.info("%s", e)
-            result.message = f"{e} in {result.steps[-1].phase}, Ablauf beendet."
-        finally:
-            self._end = None
-
-    def _round_loop(self, result, run_dir, human, scenario, threshold):
-        rep = scenario.repeat
+        token = object()
+        if rep["until"]:
+            self._ends.append((token, dict(name=rep["until"], threshold=threshold, grayscale=rep["grayscale"])))
         rounds = 0
-        while not rep["max"] or rounds < rep["max"]:
-            phase = f"Runde {rounds + 1}"
-            sr = StepResult(phase, 0, f"while: {rep['while']}")
-            result.steps.append(sr)
-            t0 = time.perf_counter()
-            try:
-                m = self._wait_image(rep["while"], rep["timeout"], threshold, grayscale=rep["grayscale"])
-            except StepFailed:
-                m = None
-            except EndReached as e:
-                sr.status, sr.detail = "ok", f"{e}, Ablauf beendet"
-                raise
-            except (Aborted, pyautogui.FailSafeException) as e:
-                self._set_aborted(result, sr, e)
-                return
-            finally:
-                sr.duration = time.perf_counter() - t0
+        try:
+            while not rep["max"] or rounds < rep["max"]:
+                round_phase = f"{phase} › Runde {rounds + 1}" if nested and phase != "Ablauf" else f"Runde {rounds + 1}"
+                sr = StepResult(round_phase, prefix or 0, "while: " + " | ".join(rep["while"]))
+                result.steps.append(sr)
+                t0 = time.perf_counter()
+                try:
+                    case, m = self._wait_first([{"if": n, "grayscale": None} for n in rep["while"]],
+                                               rep["timeout"], threshold, grayscale=rep["grayscale"])
+                except StepFailed:
+                    case = m = None
+                except EndReached as e:
+                    sr.status, sr.detail = "ok", str(e)
+                    raise
+                except (Aborted, pyautogui.FailSafeException) as e:
+                    self._set_aborted(result, sr, e)
+                    return False
+                finally:
+                    sr.duration = time.perf_counter() - t0
 
-            if m is None:
-                if rounds == 0:
-                    sr.status, sr.detail = "fail", f"Bild '{rep['while']}' nicht gefunden"
-                    sr.screenshot = self._failure_screenshot(run_dir, "fehler_Runde_1.png")
-                    result.status = "fail"
-                    result.message = f"Wiederholung: {sr.detail}, keine einzige Runde ausgeführt."
-                    return
-                sr.status, sr.detail = "ok", "nicht mehr sichtbar, Wiederholung beendet"
-                result.message = f"{rounds} Runden erfolgreich, danach war '{rep['while']}' nicht mehr sichtbar."
-                return
-            sr.status, sr.detail = "ok", f"Treffer {m.score:.2f}"
-            log.info("[%s] %s gefunden, starte Runde", phase, rep["while"])
-            rounds += 1
-            if not self._run_list(result, run_dir, human, phase, scenario.steps):
-                return
-        result.message = f"{rounds} Runden erfolgreich (Höchstzahl erreicht)."
+                if m is None:
+                    names = " / ".join(rep["while"])
+                    if rounds == 0 and not nested:
+                        sr.status, sr.detail = "fail", f"Bild {names} nicht gefunden"
+                        sr.screenshot = self._failure_screenshot(run_dir, "fehler_Runde_1.png")
+                        result.status = "fail"
+                        result.message = f"Wiederholung: {sr.detail}, keine einzige Runde ausgeführt."
+                        return False
+                    sr.status, sr.detail = "ok", f"nicht mehr sichtbar, Schleife nach {rounds} Runden beendet"
+                    if not nested:
+                        result.message = f"{rounds} Runden erfolgreich, danach war {names} nicht mehr sichtbar."
+                    return True
+                sr.status, sr.detail = "ok", f"'{case['if']}' gefunden (Treffer {m.score:.2f})"
+                log.info("[%s] %s gefunden, starte Runde", round_phase, case["if"])
+                rounds += 1
+                if not self._run_list(result, run_dir, human, round_phase, steps,
+                                      prefix=f"{prefix}." if prefix else ""):
+                    return False
+            if not nested:
+                result.message = f"{rounds} Runden erfolgreich (Höchstzahl erreicht)."
+            return True
+        except EndReached as e:
+            if nested and e.owner is not token:
+                raise                   # gehört zu einer äußeren Schleife oder ist ein end-Schritt
+            log.info("%s", e)
+            if nested:
+                result.steps[-1].detail = f"{e}, Schleife nach {rounds} Runden beendet"
+                return True
+            result.message = f"{e} in {result.steps[-1].phase}, Ablauf beendet."
+            return True
+        finally:
+            self._ends = [x for x in self._ends if x[0] is not token]
 
     def run(self, scenario):
         human_cfg = config.merged_human(self.cfg, scenario.human)
@@ -343,7 +373,7 @@ class Runner:
             try:
                 if self._run_list(result, run_dir, human, "Startzustand", scenario.precondition, is_pre=True):
                     if scenario.repeat:
-                        self._run_rounds(result, run_dir, human, scenario)
+                        self._run_rounds(result, run_dir, human, scenario.repeat, scenario.steps)
                     elif self._run_list(result, run_dir, human, "Ablauf", scenario.steps):
                         result.message = f"Alle {len(scenario.steps)} Schritte erfolgreich."
                 elif not scenario.repeat:

@@ -59,6 +59,29 @@ Jede Aktion kann zusätzlich eine `note` als Kommentar im Bericht bekommen.
 
 Ohne `timeout` wartet `if_seen` die vollen 10 s, bevor es aufgibt. Darum sollte man einen kurzen Wert angeben. Oder man gibt mit `skip_if` ein Bild an, an dem man erkennt, dass das optionale Bild nicht mehr kommt. Sind beide zu sehen, gewinnt das `if_seen`-Bild.
 
+### Mehrere Schleifen nacheinander
+
+`repeat` darf auch als Schritt in `steps` stehen. So lassen sich mehrere Schleifen hintereinander (oder ineinander) bauen:
+
+```yaml
+steps:
+  - repeat:                # Schleife 1
+      while: kampf.png
+      until: niederlage.png
+    steps:                 # auf gleicher Höhe wie "repeat:", nicht darunter
+      - press: a
+  - repeat:                # Schleife 2, beginnt, wenn Schleife 1 fertig ist
+      while: [held_a.png, held_b.png]
+    steps:
+      - press: b
+  - press: esc             # danach geht es normal weiter
+```
+
+Unterschiede zum `repeat` der ganzen Sequenz:
+- `until` beendet nur diese Schleife, danach geht es mit dem nächsten Schritt weiter.
+- Erscheint das `while`-Bild gar nicht, läuft die Schleife null Runden, und das ist kein Fehler.
+- `end` beendet weiterhin den ganzen Ablauf, ebenso das `until` einer äußeren Schleife.
+
 ### Eines von mehreren Bildern
 
 ```yaml
@@ -80,6 +103,7 @@ Es laufen nur die Schritte des Bildes, das zuerst erscheint. Sind mehrere gleich
 ```yaml
 repeat:
   while: bild.png   # vor jeder Runde: ist das Bild zu sehen, laufen die steps erneut
+                    # oder mehrere: while: [a.png, b.png], dann reicht eines davon
   until: ende.png   # optional: erscheint dieses Bild, endet der Ablauf sofort erfolgreich
   timeout: 5        # so lange wird vor jeder Runde darauf gewartet (Standard 5 s)
   max: 50           # optional, 0 = unbegrenzt

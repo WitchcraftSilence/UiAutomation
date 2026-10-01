@@ -24,8 +24,9 @@ ACTIONS = {
     "scroll": False,
     "wait": False,
     "end": False,           # beendet den Ablauf sofort erfolgreich; Wert = optionaler Grund
+    "repeat": False,        # verschachtelte Schleife: Wert wie repeat der Sequenz, Schritte unter 'steps'
 }
-OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if"}
+OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if", "steps"}
 
 
 class ScenarioError(Exception):
@@ -41,6 +42,10 @@ class Step:
     def describe(self):
         if self.action == "end" and self.value is None:
             text = "end"
+        elif self.action == "repeat":
+            text = "repeat while: " + " | ".join(self.value["while"])
+            if self.value["until"]:
+                text += f" until: {self.value['until']}"
         elif self.action == "first_seen":
             text = "first_seen: " + " | ".join(c["if"] for c in self.value)
         else:
@@ -113,6 +118,16 @@ def _parse_step(raw, where, images_dir):
             raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(options['skip_if'])}")
     elif action == "first_seen":
         value = _parse_cases(value, where, images_dir)
+    elif action == "repeat":
+        value = _parse_repeat(value, f"{where} / repeat", images_dir)
+        steps = options.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise ScenarioError(f"{where}: repeat-Schritt erwartet eine Liste von Schritten unter 'steps' "
+                                f"(auf gleicher Höhe wie 'repeat', nicht darunter eingerückt)")
+        options["steps"] = [_parse_step(r, f"{where} / steps #{j + 1}", images_dir)
+                            for j, r in enumerate(steps)]
+    if action != "repeat" and "steps" in options:
+        raise ScenarioError(f"{where}: 'steps' gibt es nur beim repeat-Schritt")
     if action != "if_seen" and ("then" in options or "skip_if" in options):
         raise ScenarioError(f"{where}: 'then' und 'skip_if' gibt es nur bei if_seen")
     return Step(action, value, options)
@@ -160,11 +175,18 @@ def _parse_repeat(raw, where, images_dir):
     if not isinstance(raw, dict) or "while" not in raw:
         raise ScenarioError(f"{where}: repeat erwartet mindestens 'while: bild.png'")
     unknown = set(raw) - {"while", "until", "timeout", "threshold", "max", "grayscale"}
+    if "steps" in unknown:
+        raise ScenarioError(f"{where}: 'steps' ist unter 'repeat' eingerückt. Beim repeat-Schritt gehört "
+                            f"'steps:' auf dieselbe Höhe wie 'repeat:'")
     if unknown:
         raise ScenarioError(f"{where}: unbekannt: {', '.join(sorted(unknown))}")
-    image = str(raw["while"])
+    # while: ein Bild oder eine Liste; die Runde startet, wenn eines davon zu sehen ist
+    images = raw["while"] if isinstance(raw["while"], list) else [raw["while"]]
+    images = [str(i) for i in images]
+    if not images:
+        raise ScenarioError(f"{where}: while erwartet ein Bild oder eine Liste von Bildern")
     until = str(raw["until"]) if raw.get("until") else None
-    for img in filter(None, (image, until)):
+    for img in images + ([until] if until else []):
         if not (images_dir / img).exists():
             raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
     max_rounds = raw.get("max", 0)
@@ -172,7 +194,7 @@ def _parse_repeat(raw, where, images_dir):
         raise ScenarioError(f"{where}: max erwartet eine ganze Zahl >= 0 (0 = unbegrenzt)")
     if not isinstance(raw.get("grayscale", True), bool):
         raise ScenarioError(f"{where}: grayscale erwartet true/false")
-    return {"while": image, "until": until, "grayscale": raw.get("grayscale"),
+    return {"while": images, "until": until, "grayscale": raw.get("grayscale"),
             "timeout": float(raw.get("timeout", 5)),
             "threshold": raw.get("threshold"), "max": max_rounds}
 
