@@ -40,6 +40,8 @@ Ein Szenario lässt sich ohne GUI prüfen:
 
 **Neue Aktion hinzufügen**: in `scenario.py` in `ACTIONS` eintragen (Wert ist `True`, wenn der Wert ein Bildname ist), dort die Validierung in `_parse_step` ergänzen, dann `Runner._execute` erweitern und die Tabelle in der README nachziehen. Neue Schrittoptionen gehören in `OPTIONS`, sonst lehnt der Parser sie ab. `if_seen` und `first_seen` (Liste von `{if, then}`-Fällen) haben verschachtelte Schritte. Der Parser verarbeitet sie rekursiv, `_execute` gibt dafür `(detail, then_schritte)` zurück, und `Runner._run_list` führt sie aus und nummeriert sie als `9.1`, `9.2`.
 
+**Zähler lesen** (`ocr.py`, Aktion `if_counter`): Windows-OCR über die `winrt-*`-Pakete. `counter_layout` trennt das Leistenbild am Abstand der hellen Textgruppen in Anker (fester linker Teil, wird per `Matcher.register` als virtuelles Template gesucht) und Zählerbereich. `read_fraction` liest in mehreren Vergrößerungen und verlangt `MIN_VOTES` übereinstimmende Lesungen. Bedingungen in `when` werden per `ast` gegen eine Whitelist geprüft, nie mit `eval`.
+
 ## Windows-Eigenheiten, die man leicht bricht
 
 - `dpi.enable()` muss in `run.pyw` **vor** dem Import von pyautogui, mss und tkinter aufgerufen werden. Sonst sind Screenshot- und Klickkoordinaten bei Skalierung ≠ 100 % verschoben.

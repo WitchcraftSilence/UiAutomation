@@ -8,7 +8,7 @@ from datetime import datetime
 import cv2
 import pyautogui
 
-from . import config, report, screen, window
+from . import config, ocr, report, screen, window
 from .control import Aborted
 from .human import Human, UserInterference, click_point, uniform
 from .matcher import Matcher
@@ -163,6 +163,23 @@ class Runner:
             except StepFailed:
                 raise NotSeen() from None
             return f"erschienen (Treffer {m.score:.2f})", opts["then"]
+        if a == "if_counter":
+            tpl = self.matcher.template(v)
+            anchor_w, counter_x = ocr.counter_layout(tpl)
+            anchor = f"{v} [fester Teil]"
+            self.matcher.register(anchor, tpl[:, :anchor_w])
+            try:
+                m = self._wait_image(anchor, timeout, threshold, grayscale=gs)
+            except StepFailed:
+                raise NotSeen(f"Leiste '{v}' nicht gefunden") from None
+            crop = screen.grab((m.x + counter_x, m.y, tpl.shape[1] - counter_x, tpl.shape[0]))
+            value, votes, texts = ocr.read_fraction(crop)
+            if value is None:
+                raise NotSeen(f"Zähler nicht lesbar (gelesen: {', '.join(repr(t) for t in texts)})")
+            x, total = value
+            if ocr.compile_condition(opts["when"])(x, total):
+                return f"Zähler {x}/{total} ({votes}/{len(texts)} Lesungen): '{opts['when']}' erfüllt", opts["then"]
+            raise NotSeen(f"Zähler {x}/{total} ({votes}/{len(texts)} Lesungen): '{opts['when']}' nicht erfüllt")
         if a == "first_seen":
             case, m = self._wait_first(v, timeout, threshold, grayscale=gs)
             return f"'{case['if']}' erschienen (Treffer {m.score:.2f})", case["then"]
@@ -217,8 +234,9 @@ class Runner:
         try:
             while True:
                 try:
-                    if not is_pre:
-                        human.think()
+                    # Startzustand ohne Denkpause, außer der Schritt verlangt ausdrücklich eine
+                    if not is_pre or "think" in step.options:
+                        human.think(step.options.get("think"))
                     out = self._execute(step, human, default_timeout)
                     sr.detail, sr.then = out if isinstance(out, tuple) else (out, None)
                     break

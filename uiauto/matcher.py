@@ -24,8 +24,14 @@ class Matcher:
         self.images_dir = images_dir
         self.grayscale = grayscale
         self._cache = {}
+        self._virtual = {}      # name -> Bild, das nicht als Datei existiert (z. B. Ausschnitt einer Vorlage)
+
+    def register(self, name, img):
+        self._virtual[name] = img
 
     def template(self, name):
+        if name in self._virtual:
+            return self._virtual[name]
         path = self.images_dir / name
         key = (str(path), path.stat().st_mtime)
         if key not in self._cache:

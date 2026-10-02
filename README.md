@@ -44,6 +44,14 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 
 Jede Aktion kann zusätzlich eine `note` als Kommentar im Bericht bekommen.
 
+Vor jedem Schritt macht das Tool eine Denkpause (`think_time`). Mit `think` bekommt ein einzelner Schritt eine eigene Pause, z. B. für schnelle Tastenfolgen:
+
+```yaml
+  - press: r
+  - press: b
+    think: [0.05, 0.12]   # Sekunden oder [min, max]; 0 = keine Denkpause
+```
+
 `offset` wird von der Bildmitte aus gemessen, entweder in Pixeln (`[150, 0]`) oder in Vielfachen der Bildgröße: `[0, 1.5h]` heißt 1,5 × Bildhöhe nach unten, `[-0.5w, 0]` eine halbe Bildbreite nach links. Negative Werte zeigen nach links bzw. oben.
 
 ### Optionale Schritte
@@ -58,6 +66,20 @@ Jede Aktion kann zusätzlich eine `note` als Kommentar im Bericht bekommen.
 ```
 
 Ohne `timeout` wartet `if_seen` die vollen 10 s, bevor es aufgibt. Darum sollte man einen kurzen Wert angeben. Oder man gibt mit `skip_if` ein Bild an, an dem man erkennt, dass das optionale Bild nicht mehr kommt. Sind beide zu sehen, gewinnt das `if_seen`-Bild.
+
+### Zähler lesen
+
+```yaml
+  - if_counter: Leiste.png       # Bild der ganzen Leiste, z. B. "[Symbol] Geisterschule   2/132"
+    when: x >= total - 2         # Bedingung mit x und total
+    timeout: 2
+    then:
+      - end: Ziel erreicht
+```
+
+Das Tool sucht die Leiste über ihren festen linken Teil (Symbol und Beschriftung), liest rechts den Zähler `x/total` mit der Windows-Texterkennung und führt `then` nur aus, wenn die Bedingung zutrifft. Der Zähler wird mehrfach in verschiedenen Vergrößerungen gelesen und nur ein Ergebnis angenommen, das die Mehrheit bestätigt. Ist er nicht sicher lesbar, wird der Schritt übersprungen (steht im Bericht) und beim nächsten Mal erneut geprüft. Darum besser `>=` als `==` verwenden.
+
+In `when` erlaubt: `x`, `total`, ganze Zahlen, `+ - * //` und Vergleiche (`>= > <= < == !=`).
 
 ### Mehrere Schleifen nacheinander
 

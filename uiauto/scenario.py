@@ -5,6 +5,7 @@ from pathlib import Path
 import pyautogui
 import yaml
 
+from . import ocr, screen
 from .config import DEFAULTS
 from .human import offset_px
 
@@ -18,6 +19,7 @@ ACTIONS = {
     "expect": True,
     "expect_not": True,
     "if_seen": True,        # führt 'then' nur aus, wenn das Bild erscheint
+    "if_counter": True,     # liest "x/total" rechts in der Leiste; 'then' nur, wenn 'when' zutrifft
     "first_seen": False,    # Liste von {if: bild, then: [...]}: das zuerst erscheinende Bild gewinnt
     "type": False,
     "press": False,
@@ -26,7 +28,8 @@ ACTIONS = {
     "end": False,           # beendet den Ablauf sofort erfolgreich; Wert = optionaler Grund
     "repeat": False,        # verschachtelte Schleife: Wert wie repeat der Sequenz, Schritte unter 'steps'
 }
-OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if", "steps"}
+OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if", "steps", "think",
+           "when"}
 
 
 class ScenarioError(Exception):
@@ -91,6 +94,15 @@ def _parse_step(raw, where, images_dir):
         for key in str(value).lower().split("+"):
             if key.strip() not in pyautogui.KEYBOARD_KEYS:
                 raise ScenarioError(f"{where}: unbekannte Taste '{key}'")
+    if "think" in options:
+        t = options["think"]
+        ok = (isinstance(t, (int, float)) and not isinstance(t, bool) and t >= 0) or (
+            isinstance(t, list) and len(t) == 2 and all(isinstance(x, (int, float)) and x >= 0 for x in t)
+            and t[0] <= t[1])
+        if not ok:
+            raise ScenarioError(f"{where}: think erwartet Sekunden oder [min, max], z. B. think: [0.05, 0.12]")
+        if action == "repeat":
+            raise ScenarioError(f"{where}: think gilt für einzelne Schritte, nicht für repeat")
     if action == "wait" and not (isinstance(value, (int, float))
                                  or (isinstance(value, list) and len(value) == 2)):
         raise ScenarioError(f"{where}: wait erwartet Sekunden oder [min, max]")
@@ -108,10 +120,21 @@ def _parse_step(raw, where, images_dir):
     has_image = ACTIONS[action] or action == "first_seen"
     if "grayscale" in options and not (has_image and isinstance(options["grayscale"], bool)):
         raise ScenarioError(f"{where}: grayscale erwartet true/false und gilt nur für Aktionen mit Bild")
-    if action == "if_seen":
+    if action == "if_counter":
+        try:
+            ocr.compile_condition(options.get("when", ""))
+        except (ValueError, SyntaxError) as e:
+            raise ScenarioError(f"{where}: when erwartet eine Bedingung wie 'x >= total - 2' ({e})") from None
+        try:
+            ocr.counter_layout(screen.imread(images_dir / str(value)))
+        except ValueError as e:
+            raise ScenarioError(f"{where}: im Bild '{value}' keinen Zähler gefunden: {e}") from None
+    elif "when" in options:
+        raise ScenarioError(f"{where}: 'when' gibt es nur bei if_counter")
+    if action in ("if_seen", "if_counter"):
         then = options.get("then")
         if not isinstance(then, list) or not then:
-            raise ScenarioError(f"{where}: if_seen erwartet eine Liste von Schritten unter 'then'")
+            raise ScenarioError(f"{where}: {action} erwartet eine Liste von Schritten unter 'then'")
         options["then"] = [_parse_step(r, f"{where} / then #{j + 1}", images_dir)
                            for j, r in enumerate(then)]
         if "skip_if" in options and not (images_dir / str(options["skip_if"])).exists():
@@ -128,8 +151,10 @@ def _parse_step(raw, where, images_dir):
                             for j, r in enumerate(steps)]
     if action != "repeat" and "steps" in options:
         raise ScenarioError(f"{where}: 'steps' gibt es nur beim repeat-Schritt")
-    if action != "if_seen" and ("then" in options or "skip_if" in options):
-        raise ScenarioError(f"{where}: 'then' und 'skip_if' gibt es nur bei if_seen")
+    if action not in ("if_seen", "if_counter") and "then" in options:
+        raise ScenarioError(f"{where}: 'then' gibt es nur bei if_seen und if_counter")
+    if action != "if_seen" and "skip_if" in options:
+        raise ScenarioError(f"{where}: 'skip_if' gibt es nur bei if_seen")
     return Step(action, value, options)
 
 

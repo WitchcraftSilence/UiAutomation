@@ -1,4 +1,4 @@
-name: held
+name: Held
 hotkey: ctrl+alt+3
 
 # Eingespielter Ablauf: kaum Nachdenken, Reaktion wie bei einem erwarteten Dialog
@@ -9,30 +9,30 @@ human:
 
 
 steps:
-  - repeat:                     # Schleife 1
-      while: Held1 A.png
-      until: Held Niederlage.png
-    steps:                      # gleiche Höhe wie "repeat:"
-      - click: Held1 A.png
-      - wait_for: Held2 Ersetzen R.png
-      - press: r
-      - wait_for: Held3 Auto B.png
-      - press: b
-      - wait_for: Held4 OK ESC.png
-      - press: esc
-  - if_seen: Held Niederlage.png  # endete Schleife 1 mit einer Niederlage, erst den Dialog schließen
-    timeout: 0.5
-    then:
-      - press: esc
-      - expect_not: Held Niederlage.png
-  - repeat:                     # Schleife 2, startet nach Schleife 1
-      while: Held5 V.png
-      until: Held Niederlage.png
-    steps:
-      - click: Held5 V.png
-      - wait_for: Held6 Ersetzen R.png
-      - press: r
-      - wait_for: Held7 Auto B.png
-      - press: b
-      - wait_for: Held8 OK ESC.png
-      - press: esc
+- repeat:                     # Schleife 1
+    while: Held1 A.png
+    until: Held Niederlage.png
+  steps:                      # gleiche Höhe wie "repeat:"
+    - click: Held1 A.png
+    - wait_for: Held2 Ersetzen R.png
+    - press: r
+    - wait_for: Held3 Auto B.png
+    - press: b
+    - wait_for: Held4 OK ESC.png
+    - press: esc
+- if_seen: Held Niederlage.png  # endete Schleife 1 mit einer Niederlage, erst den Dialog schließen
+  timeout: 0.5
+  then:
+    - press: esc
+    - expect_not: Held Niederlage.png
+- repeat:                     # Schleife 2, startet nach Schleife 1
+    while: Held5 V.png
+    until: Held Niederlage.png
+  steps:
+    - click: Held5 V.png
+    - wait_for: Held6 Ersetzen R.png
+    - press: r
+    - wait_for: Held7 Auto B.png
+    - press: b
+    - wait_for: Held8 OK ESC.png
+    - press: esc

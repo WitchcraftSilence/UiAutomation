@@ -131,8 +131,10 @@ class Human:
             self._expected = None
             raise UserInterference()
 
-    def think(self):
-        self.control.sleep(uniform(self.cfg["think_time"]))
+    def think(self, override=None):
+        """Denkpause vor einem Schritt; override = Sekunden oder [min, max] nur für diesen Schritt."""
+        rng = self.cfg["think_time"] if override is None else override
+        self.control.sleep(uniform(rng) if isinstance(rng, list) else float(rng))
 
     def move_to(self, x, y, target_size=20):
         self.control.check()
