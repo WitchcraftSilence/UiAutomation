@@ -20,6 +20,7 @@ ACTIONS = {
     "expect_not": True,
     "if_seen": True,        # führt 'then' nur aus, wenn das Bild erscheint
     "if_counter": True,     # liest "x/total" rechts in der Leiste; 'then' nur, wenn 'when' zutrifft
+    "replace_damaged": False,   # {army: bild, pool: bild}: beschädigte Einheiten gegen gesunde gleicher Art tauschen
     "first_seen": False,    # Liste von {if: bild, then: [...]}: das zuerst erscheinende Bild gewinnt
     "type": False,
     "press": False,
@@ -29,7 +30,7 @@ ACTIONS = {
     "repeat": False,        # verschachtelte Schleife: Wert wie repeat der Sequenz, Schritte unter 'steps'
 }
 OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if", "steps", "think",
-           "when"}
+           "when", "if_missing"}
 
 
 class ScenarioError(Exception):
@@ -49,6 +50,8 @@ class Step:
             text = "repeat while: " + " | ".join(self.value["while"])
             if self.value["until"]:
                 text += f" until: {self.value['until']}"
+        elif self.action == "replace_damaged":
+            text = f"replace_damaged: {self.value['army']} ← {self.value['pool']}"
         elif self.action == "first_seen":
             text = "first_seen: " + " | ".join(c["if"] for c in self.value)
         else:
@@ -141,6 +144,21 @@ def _parse_step(raw, where, images_dir):
             raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(options['skip_if'])}")
     elif action == "first_seen":
         value = _parse_cases(value, where, images_dir)
+    elif action == "replace_damaged":
+        if not isinstance(value, dict) or not {"army", "pool"} <= set(value) <= {"army", "pool", "empty"}:
+            raise ScenarioError(f"{where}: replace_damaged erwartet 'army: bild.png', 'pool: bild.png' "
+                                f"und optional 'empty: bild.png' (leeres Feld)")
+        for img in value.values():
+            if not (images_dir / str(img)).exists():
+                raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(img)}")
+        value = {k: str(v) for k, v in value.items()}
+        if "if_missing" in options:
+            if not isinstance(options["if_missing"], list) or not options["if_missing"]:
+                raise ScenarioError(f"{where}: if_missing erwartet eine Liste von Schritten")
+            options["if_missing"] = [_parse_step(r, f"{where} / if_missing #{j + 1}", images_dir)
+                                     for j, r in enumerate(options["if_missing"])]
+    if action != "replace_damaged" and "if_missing" in options:
+        raise ScenarioError(f"{where}: 'if_missing' gibt es nur bei replace_damaged")
     elif action == "repeat":
         value = _parse_repeat(value, f"{where} / repeat", images_dir)
         steps = options.get("steps")

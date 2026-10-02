@@ -42,6 +42,8 @@ Ein Szenario lässt sich ohne GUI prüfen:
 
 **Zähler lesen** (`ocr.py`, Aktion `if_counter`): Windows-OCR über die `winrt-*`-Pakete. `counter_layout` trennt das Leistenbild am Abstand der hellen Textgruppen in Anker (fester linker Teil, wird per `Matcher.register` als virtuelles Template gesucht) und Zählerbereich. `read_fraction` liest in mehreren Vergrößerungen und verlangt `MIN_VOTES` übereinstimmende Lesungen. Bedingungen in `when` werden per `ast` gegen eine Whitelist geprüft, nie mit `eval`.
 
+**Einheiten tauschen** (`army.py`, Aktion `replace_damaged`): `find_tiles` findet Kacheln über die grünen Stücke der Lebensbalken. „Voll“ heißt, dass das letzte Segment ganz rechts grün ist. Ein Grün-Anteil über die ganze Breite taugt nicht, weil die Trennstriche dunkel sind. Gleiche Einheitenart wird über den oberen Porträtteil verglichen (`similarity`, ohne Abzeichen und „x8“). Für die Armee kommen die Plätze als feste Positionen aus dem Armee-Bild, ihren Zustand liefert `army.slot_state`. `find_tiles` würde Einheiten mit fast leerem Balken (unter 12 px Grün) übersehen und taugt nur für die verfügbaren Einheiten, wo ohnehin nur volle Balken interessieren. `Runner._replace_damaged` füllt zuerst leere Felder (`army.find_empty`, Vorlage aus `empty:`) mit einer Einheit, deren Art schon in der Armee steht. Danach tauscht es beschädigte Einheiten. Es prüft vor dem Herausnehmen, ob es Ersatz gibt, und kontrolliert nach jedem Klick die Kachelanzahl.
+
 ## Windows-Eigenheiten, die man leicht bricht
 
 - `dpi.enable()` muss in `run.pyw` **vor** dem Import von pyautogui, mss und tkinter aufgerufen werden. Sonst sind Screenshot- und Klickkoordinaten bei Skalierung ≠ 100 % verschoben.

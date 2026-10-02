@@ -10,25 +10,24 @@ human:
 
 steps:
   - repeat:
-      while:
-        - QI Kampf.png
-        - max: 1
+      while: QI Kampf.png
+      max: 10                   # höchstens 10 Runden; gleiche Höhe wie "while:"
     steps:                      # gleiche Höhe wie "repeat:"
-      - press: a
-      - wait_for: GG2 Ersetzen R.png
-      - press: r
-      - press: b                # Kampfrunde 1
-      - expect_not: GG Auto 1 B.png   # erst weiter, wenn der Dialog zu ist: "Auto 2" sieht ihm sehr ähnlich (0,93)
-        think: 0
-      - first_seen:             # nach Runde 1 kommt entweder das Ergebnis oder Kampfrunde 2
-          - if: GG OK ESC.png   # fertig nach einer Runde
-            then:
-              - press: esc
-          - if: GG Auto 2 B.png # es gibt eine zweite Runde
-            then:
-              - press: b        # Kampfrunde 2
-              - wait_for: GG OK ESC.png
-                timeout: 30     # Kampf kann dauern
-              - press: esc
-        timeout: 30             # so lange dauert Runde 1 höchstens
-
+      - click: QI Kampf.png
+      - replace_damaged:        # beschädigte Einheiten gegen gesunde derselben Art tauschen
+          army: QI Verteidigende Armee.png   # Armee, gefunden über die Überschrift
+          pool: QI Available.png             # verfügbare Einheiten, gefunden über die Reiter
+          empty: QI Leeres Feld.png          # leeres Feld: nur auffüllen, nichts herausnehmen
+        if_missing:             # kein gesunder Ersatz: Sequenz beenden
+          - end: kein gesunder Ersatz
+      - press: b                # Auto-Kampf
+      - wait_for: QI OK.png
+        timeout: 1             # Kampf kann dauern
+      - press: esc
+      - repeat:                 # Belohnung schließen; Esc wiederholen, bis sie wirklich weg ist
+          while: QI Belohnung ESC.png
+          timeout: 1            # so lange wird nach der Belohnung gesucht
+          max: 5
+        steps:
+          - press: esc
+            think: [0.4, 0.7]   # erst warten, bis der Dialog fertig eingeblendet ist

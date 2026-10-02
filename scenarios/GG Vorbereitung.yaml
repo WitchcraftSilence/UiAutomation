@@ -1,4 +1,4 @@
-name: GG Einnahme
+name: GG Vorbereitung
 hotkey: ctrl+alt+4
 
 # Eingespielter Ablauf: kaum Nachdenken, Reaktion wie bei einem erwarteten Dialog
@@ -15,14 +15,14 @@ steps:
         - GG1 Verteidigung A.png
       until: GG Niederlage.png
     steps:                      # gleiche Höhe wie "repeat:"
-      - if_counter: GG Status Geister.png   # Zähler "x/total" rechts in der Leiste lesen
+      - if_counter: GG Status.png   # Zähler "x/total" rechts in der Leiste lesen
         when: x >= total - 2
         timeout: 2              # so lange wird die Leiste gesucht
         think: 0
         then:
           - end: Ziel erreicht (total - 2)
       - press: a
-      - wait_for: GG2 Ersertzen R.png
+      - wait_for: GG2 Ersetzen R.png
       - press: r
       - press: b                # Kampfrunde 1
       - expect_not: GG Auto 1 B.png   # erst weiter, wenn der Dialog zu ist: "Auto 2" sieht ihm sehr ähnlich (0,93)

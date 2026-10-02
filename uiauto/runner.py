@@ -8,10 +8,10 @@ from datetime import datetime
 import cv2
 import pyautogui
 
-from . import config, ocr, report, screen, window
+from . import army, config, ocr, report, screen, window
 from .control import Aborted
 from .human import Human, UserInterference, click_point, uniform
-from .matcher import Matcher
+from .matcher import Match, Matcher
 
 log = logging.getLogger(__name__)
 
@@ -180,6 +180,8 @@ class Runner:
             if ocr.compile_condition(opts["when"])(x, total):
                 return f"Zähler {x}/{total} ({votes}/{len(texts)} Lesungen): '{opts['when']}' erfüllt", opts["then"]
             raise NotSeen(f"Zähler {x}/{total} ({votes}/{len(texts)} Lesungen): '{opts['when']}' nicht erfüllt")
+        if a == "replace_damaged":
+            return self._replace_damaged(v, opts, human, timeout, threshold, gs)
         if a == "first_seen":
             case, m = self._wait_first(v, timeout, threshold, grayscale=gs)
             return f"'{case['if']}' erschienen (Treffer {m.score:.2f})", case["then"]
@@ -202,6 +204,110 @@ class Runner:
             self.control.sleep(seconds)
             return f"{seconds:.2f} s"
         raise StepFailed(f"Unbekannte Aktion {a}")
+
+    # ------------------------------------------------------------ Einheiten tauschen
+
+    HEADER_ROWS = {"army": 25, "pool": 40}   # fester oberer Teil der Bereichsbilder (Überschrift, Reiter)
+
+    def _find_panel(self, name, rows, timeout, threshold, gs):
+        """Bereich über seinen festen oberen Teil finden; gibt (x, y, w, h) auf dem Bildschirm zurück."""
+        tpl = self.matcher.template(name)
+        anchor = f"{name} [Kopf]"
+        self.matcher.register(anchor, tpl[:rows])
+        m = self._wait_image(anchor, timeout, threshold, grayscale=gs)
+        return m.x, m.y, tpl.shape[1], tpl.shape[0]
+
+    def _poll(self, condition, timeout=3.0):
+        end = time.perf_counter() + timeout
+        while True:
+            self.control.check()
+            if condition():
+                return True
+            if time.perf_counter() >= end:
+                return False
+            self.control.sleep(self.matching["poll_interval"])
+
+    @staticmethod
+    def _best_replacement(pool_img, portraits):
+        """Gesunde Kachel im Pool, die einem der Porträts am ähnlichsten ist: (kachel, ähnlichkeit) oder None."""
+        best = None
+        for t in army.find_tiles(pool_img):
+            if not t.full:
+                continue
+            s = max(army.similarity(p, pool_img, t) for p in portraits)
+            if s >= army.SAME_UNIT and (best is None or s > best[1]):
+                best = (t, s)
+        return best
+
+    def _click_tile(self, human, region, tile):
+        x, y, w, h = tile.portrait_box
+        px, py = click_point(Match(region[0] + x, region[1] + y, w, h, 1.0), human.cfg)
+        human.click(px, py, target_size=min(w, h))
+
+    @staticmethod
+    def _missing(opts, text):
+        """Kein Ersatz: if_missing-Schritte ausführen, sonst Fehler."""
+        if opts.get("if_missing"):
+            return text, opts["if_missing"]
+        raise StepFailed(text[0].upper() + text[1:])
+
+    def _replace_damaged(self, panels, opts, human, timeout, threshold, gs):
+        """Leere Felder auffüllen und beschädigte Einheiten gegen gesunde derselben Art tauschen.
+
+        Die Plätze der Armee kommen aus dem Armee-Bild (feste Positionen im Bereich), so werden
+        auch Einheiten mit fast leerem Balken erkannt. Beim ersten fehlenden Ersatz endet der
+        Schritt (if_missing bzw. Fehler); herausgenommen wird nur, wenn vorher Ersatz gefunden wurde.
+        """
+        reg_a = self._find_panel(panels["army"], self.HEADER_ROWS["army"], timeout, threshold, gs)
+        reg_p = self._find_panel(panels["pool"], self.HEADER_ROWS["pool"], timeout, threshold, gs)
+        slots = army.find_tiles(self.matcher.template(panels["army"]))
+        empty_tpl = self.matcher.template(panels["empty"]) if panels.get("empty") else None
+        states = lambda img: [army.slot_state(img, t, empty_tpl) for t in slots]
+        n_empty = lambda: states(screen.grab(reg_a)).count("empty")
+        replaced = filled = 0
+        summary = lambda: f"{filled} leere Felder gefüllt, {replaced} ersetzt"
+
+        for _ in range(2 * len(slots) + 2):     # Schutz gegen Endlosschleife
+            img_a = screen.grab(reg_a)
+            st = states(img_a)
+            empty = st.count("empty")
+
+            # leere Felder nur auffüllen, mit einer Einheit, deren Art schon in der Armee steht
+            if empty:
+                portraits = [army.crop(img_a, t.portrait_box) for t, s in zip(slots, st) if s != "empty"]
+                best = self._best_replacement(screen.grab(reg_p), portraits) if portraits else None
+                if best is None:
+                    return self._missing(opts, f"keine gesunde Einheit für ein leeres Feld ({summary()})")
+                self._click_tile(human, reg_p, best[0])
+                if not self._poll(lambda: n_empty() == empty - 1):
+                    raise StepFailed("Einheit wurde nicht in das leere Feld übernommen")
+                filled += 1
+                log.info("Leeres Feld gefüllt (Ähnlichkeit %.2f)", best[1])
+                human.think()
+                continue
+
+            if "damaged" not in st:
+                return f"{summary()}, alle {len(slots)} Einheiten voll"
+            slot = st.index("damaged")
+            tile = slots[slot]
+            portrait = [army.crop(img_a, tile.portrait_box)]
+            if self._best_replacement(screen.grab(reg_p), portrait) is None:
+                return self._missing(opts, f"kein gesunder Ersatz für die Einheit bei Platz {slot + 1} ({summary()})")
+
+            self._click_tile(human, reg_a, tile)                     # herausnehmen
+            if not self._poll(lambda: n_empty() == 1):
+                raise StepFailed(f"Einheit bei Platz {slot + 1} wurde nicht herausgenommen")
+            best = self._best_replacement(screen.grab(reg_p), portrait)   # Pool hat sich verändert
+            if best is None:
+                return self._missing(opts, f"Ersatz für Platz {slot + 1} nach dem Herausnehmen nicht mehr gefunden "
+                                           f"({summary()})")
+            human.think()
+            self._click_tile(human, reg_p, best[0])                  # einsetzen
+            if not self._poll(lambda: n_empty() == 0):
+                raise StepFailed("Ersatz-Einheit wurde nicht in die Armee übernommen")
+            replaced += 1
+            log.info("Einheit bei Platz %d ersetzt (Ähnlichkeit %.2f)", slot + 1, best[1])
+        raise StepFailed(f"Nach {replaced} Tauschvorgängen immer noch beschädigte Einheiten, breche ab")
 
     def _failure_screenshot(self, run_dir, name, mark=None):
         try:

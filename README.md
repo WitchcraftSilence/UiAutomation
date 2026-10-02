@@ -81,6 +81,19 @@ Das Tool sucht die Leiste über ihren festen linken Teil (Symbol und Beschriftun
 
 In `when` erlaubt: `x`, `total`, ganze Zahlen, `+ - * //` und Vergleiche (`>= > <= < == !=`).
 
+### Beschädigte Einheiten tauschen
+
+```yaml
+  - replace_damaged:
+      army: Armee.png        # Bild des Armee-Bereichs; gefunden über die oberen 25 px (Überschrift)
+      pool: Verfuegbar.png   # Bild der verfügbaren Einheiten; gefunden über die oberen 40 px (Reiter)
+      empty: Leer.png        # optional: Bild eines leeren Felds; solche Felder werden nur aufgefüllt
+    if_missing:              # optional: kein gesunder Ersatz -> diese Schritte (sonst Fehler)
+      - end: kein Ersatz
+```
+
+Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (letztes Segment nicht grün), sucht das Tool unter den verfügbaren Einheiten eine derselben Art mit vollem Balken. Nur wenn es einen Ersatz gibt, nimmt es die beschädigte Einheit heraus (Klick) und setzt den Ersatz ein (Klick). Nach jedem Klick prüft es, ob sich die Armee wirklich verändert hat. Die Einheitenart wird über das Porträt verglichen und muss nicht vorher aufgenommen werden. Leere Felder (mit `empty`) werden zuerst aufgefüllt, mit einer gesunden Einheit, deren Art schon in der Armee steht.
+
 ### Mehrere Schleifen nacheinander
 
 `repeat` darf auch als Schritt in `steps` stehen. So lassen sich mehrere Schleifen hintereinander (oder ineinander) bauen:
