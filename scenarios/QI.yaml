@@ -11,7 +11,6 @@ human:
 steps:
   - repeat:
       while: QI Kampf.png
-      max: 10                   # höchstens 10 Runden; gleiche Höhe wie "while:"
     steps:                      # gleiche Höhe wie "repeat:"
       - click: QI Kampf.png
       - replace_damaged:        # beschädigte Einheiten gegen gesunde derselben Art tauschen

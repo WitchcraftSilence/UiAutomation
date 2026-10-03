@@ -1,0 +1,17 @@
+name: Mouseclicks
+hotkey: ctrl+alt+7
+
+# Schnell dort klicken, wo die Maus steht. Tempo und Zittern stehen in config.yaml / uiauto/config.py
+# (rapid_click_hold, rapid_click_gap, rapid_jitter, rapid_pause_chance) und lassen sich hier überschreiben.
+human:
+  think_time: [0.0, 0.0]        # keine Denkpause vor den Schritten
+
+params:
+  klicks:                       # im Steuerfenster als Auswahl unter der Sequenz; gilt auch für den Hotkey
+    options: [5, 10, 25, 50]
+    default: 25
+
+steps:
+  - wait: 2                     # 2 s Zeit, um die Maus zu positionieren
+    note: Maus positionieren
+  - click_here: $klicks         # so oft an der Mausposition klicken, wie im Fenster gewählt

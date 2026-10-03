@@ -25,3 +25,7 @@ human:
   click_hold: [0.05, 0.13]
   typing_delay: [0.06, 0.15]
   typing_pause_chance: 0.05
+
+notifications:
+  seconds: 2                    # so lange bleiben Meldungen stehen; 0 = keine (nur im Log)
+  error_seconds: 6              # Fehler bleiben länger und kommen auch bei seconds: 0

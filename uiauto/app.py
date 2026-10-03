@@ -1,4 +1,4 @@
-"""Tray-Anwendung: Szenarien per Hotkey oder Menü starten, pausieren, abbrechen, Bilder aufnehmen."""
+"""Steuerfenster und Tray: Szenarien per Hotkey, Fenster oder Menü starten, pausieren, abbrechen, Bilder aufnehmen."""
 import logging
 import os
 import queue
@@ -14,6 +14,7 @@ from .control import Control
 from .hotkeys import HotkeyListener
 from .recorder import Recorder
 from .runner import Runner
+from .ui import ControlWindow
 
 log = logging.getLogger("uiauto")
 
@@ -46,16 +47,21 @@ class App:
         self.runner = Runner(self.cfg, self.control, self.notify)
         self.scenarios = []
         self.last_report = None
+        self.current = None             # Name der laufenden/pausierten Sequenz
+        self.param_values = {}          # (sequenz, einstellung) -> im Fenster gewählter Wert
         self.state = "idle"
         self._run_thread = None
+        self._notify_timer = None
         self._start_lock = threading.Lock()
         self._ui_queue = queue.Queue()
         self.hotkeys = None
 
-        # Tk läuft im Hauptthread (für Aufnahmewerkzeug und Dialoge), unsichtbar
+        # Tk läuft im Hauptthread: unsichtbares Hauptfenster, Steuerfenster, Aufnahmewerkzeug, Dialoge
         self.root = tk.Tk()
         self.root.withdraw()
-        self.recorder = Recorder(self.root, self.cfg["paths"]["images"], self.notify)
+        self.window = ControlWindow(self.root, self)
+        self.recorder = Recorder(self.root, self.cfg["paths"]["images"], self.notify,
+                                 on_done=self.window.restore_after_record)
 
         self.icon = pystray.Icon("uiauto", _icon_image(COLORS["idle"]), "UI-Automation – bereit")
 
@@ -85,18 +91,35 @@ class App:
                 log.exception("Fehler im UI-Thread")
         self.root.after(50, self._poll_ui)
 
-    def notify(self, title, text):
+    def notify(self, title, text, error=False):
+        """Windows-Meldung am Tray-Icon, die nach kurzer Zeit von selbst wieder verschwindet."""
         log.info("Meldung: %s – %s", title, text)
+        cfg = self.cfg["notifications"]
+        seconds = cfg["error_seconds"] if error else cfg["seconds"]
+        if seconds <= 0:
+            return
         try:
+            if self._notify_timer:
+                self._notify_timer.cancel()
             self.icon.notify(text, title)
+            self._notify_timer = threading.Timer(seconds, self._remove_notification)
+            self._notify_timer.daemon = True
+            self._notify_timer.start()
         except Exception:
             log.exception("Benachrichtigung fehlgeschlagen")
+
+    def _remove_notification(self):
+        try:
+            self.icon.remove_notification()
+        except Exception:
+            log.exception("Benachrichtigung entfernen fehlgeschlagen")
 
     def _set_state(self, state):
         self.state = state
         self.icon.icon = _icon_image(COLORS[state])
         self.icon.title = f"UI-Automation – {TITLES[state]}"
         self.icon.update_menu()     # Menüeinträge (aktiv/ausgegraut, Pause/Weiter) neu auswerten
+        self.ui(self.window.refresh)
 
     # ------------------------------------------------------------ Szenarien
 
@@ -107,31 +130,47 @@ class App:
         for e in errors:
             log.error(e)
         if errors:
-            self.notify("Fehler in Szenarien", "\n".join(errors)[:250])
+            self.notify("Fehler in Szenarien", "\n".join(errors)[:250], error=True)
         log.info("%d Szenarien geladen", len(self.scenarios))
+        self.ui(self.window.rebuild)
 
     def start_scenario(self, scenario):
         # Hotkey- und Tray-Thread können gleichzeitig starten wollen
         with self._start_lock:
-            if self._is_running():
+            if self.state == "paused":
+                # pausierten Ablauf beenden wie mit Stopp, dann den neuen starten
+                log.info("Pausierten Ablauf beenden, starte '%s'", scenario.name)
+                self.control.stop()
+                if self._run_thread:
+                    self._run_thread.join(5)
+                if self._run_thread and self._run_thread.is_alive():
+                    self.notify("Start nicht möglich", "Der pausierte Ablauf ließ sich nicht beenden.", error=True)
+                    return
+            elif self._is_running():
                 self.notify("Läuft bereits", "Erst den laufenden Ablauf beenden oder abbrechen.")
                 return
+            self.current = scenario.name
             self._set_state("running")
-        self._run_thread = threading.Thread(target=self._run, args=(scenario,), daemon=True)
-        self._run_thread.start()
+            self._run_thread = threading.Thread(target=self._run, args=(scenario,), daemon=True)
+            self._run_thread.start()
 
     def _run(self, scenario):
         try:
-            result = self.runner.run(scenario)
+            result = self.runner.run(scenario, self.params_for(scenario))
             self.last_report = result.report_path
             title = {"ok": "✔ Erfolgreich", "fail": "✖ Fehlgeschlagen",
                      "aborted": "■ Abgebrochen"}[result.status]
-            self.notify(f"{title}: {scenario.name}", result.message[:250])
+            self.notify(f"{title}: {scenario.name}", result.message[:250], error=result.status == "fail")
         except Exception as e:
             log.exception("Ablauf abgestürzt")
-            self.notify("Interner Fehler", str(e)[:250])
+            self.notify("Interner Fehler", str(e)[:250], error=True)
         finally:
             self._set_state("idle")
+
+    def params_for(self, scenario):
+        """Im Fenster gewählte Einstellungen einer Sequenz, sonst die Vorgaben."""
+        return {name: self.param_values.get((scenario.name, name), spec["default"])
+                for name, spec in scenario.params.items()}
 
     def _on_pause_change(self, paused, reason):
         if self.state == "idle":
@@ -157,10 +196,10 @@ class App:
         for s in self.scenarios:
             if s.hotkey:
                 if s.hotkey in bindings:
-                    self.notify("Hotkey doppelt", f"{s.hotkey} ({s.name}) ist schon vergeben.")
+                    self.notify("Hotkey doppelt", f"{s.hotkey} ({s.name}) ist schon vergeben.", error=True)
                     continue
                 bindings[s.hotkey] = self._starter(s)
-        self.hotkeys = HotkeyListener(bindings, lambda combo, msg: self.notify("Hotkey-Fehler", msg))
+        self.hotkeys = HotkeyListener(bindings, lambda combo, msg: self.notify("Hotkey-Fehler", msg, error=True))
         self.hotkeys.start()
 
     def _starter(self, s):
@@ -170,8 +209,11 @@ class App:
         if self._is_running():
             self.notify("Aufnahme nicht möglich", "Während ein Ablauf läuft, keine Aufnahme.")
             return
-        # kurz warten, bis Tray-Menü bzw. Hotkey-Tasten weg sind
-        self.ui(lambda: self.root.after(300, self.recorder.start))
+        # Steuerfenster ausblenden und kurz warten, bis Menü bzw. Hotkey-Tasten weg sind
+        def start():
+            self.window.hide_for_record()
+            self.root.after(300, self.recorder.start)
+        self.ui(start)
 
     def reload(self):
         if self.hotkeys:
@@ -200,10 +242,12 @@ class App:
         hk = self.cfg["hotkeys"]
         scenario_items = [
             pystray.MenuItem(f"{s.name}\t{s.hotkey}" if s.hotkey else s.name, self._starter(s),
-                             enabled=lambda item: not self._is_running())
+                             enabled=lambda item: self.state != "running")   # auch bei Pause
             for s in self.scenarios
         ] or [pystray.MenuItem("(keine Szenarien)", None, enabled=False)]
         return pystray.Menu(
+            pystray.MenuItem("Fenster anzeigen", lambda: self.ui(self.window.show), default=True),
+            pystray.Menu.SEPARATOR,
             *scenario_items,
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(lambda item: ("Weiter" if self.state == "paused" else "Pause") + f"\t{hk['pause']}",

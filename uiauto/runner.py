@@ -72,6 +72,8 @@ class Runner:
         self.matching = cfg["matching"]     # je Ablauf ggf. durch das Szenario überschrieben
         self.matcher = Matcher(cfg["paths"]["images"], self.matching["grayscale"])
         self.hwnd = None
+        self.params = {}
+        self._spots = {}        # bild -> (x, y, w, h) der letzten Fundstelle, für die schnelle Suche
         self._ends = []         # (schleife, find()-Argumente) je until-Bild, bei jeder Bildsuche mitgeprüft
 
     # ------------------------------------------------------------ Hilfsfunktionen
@@ -83,31 +85,58 @@ class Runner:
         window.activate(self.hwnd)
         time.sleep(0.2)
 
+    SPOT_MARGIN = 30        # px um die letzte Fundstelle, die bei der schnellen Suche abgesucht werden
+    FULL_EVERY = 5          # jede so-vielte Suche über das ganze Fenster (Endbilder, Bild an anderer Stelle)
+
+    def _spot_region(self, region, spot):
+        """Kleiner Ausschnitt um die letzte Fundstelle eines Bilds, begrenzt auf das Fenster."""
+        x, y, w, h = spot
+        m = self.SPOT_MARGIN
+        left, top = max(region[0], x - m), max(region[1], y - m)
+        right = min(region[0] + region[2], x + w + m)
+        bottom = min(region[1] + region[3], y + h + m)
+        return left, top, right - left, bottom - top
+
     def _wait_image(self, name, timeout, threshold, present=True, grayscale=None, skip_if=None):
         """Wartet, bis das Bild erscheint (bzw. bei present=False verschwindet).
 
         skip_if: zweites Bild; ist es zu sehen (und name nicht), wird NotSeen geworfen.
+        Wurde das Bild schon einmal gefunden, wird meist nur um diese Stelle gesucht (schneller);
+        jede FULL_EVERY-te Suche und die letzte vor dem Aufgeben gehen über das ganze Fenster.
         """
         region = self._region()
         end = time.perf_counter() + timeout
+        spot = self._spots.get(name) if present and not skip_if else None
+        n = 0
         while True:
             self.control.check()
-            shot = screen.grab(region)
-            for owner, end_args in self._ends:
-                if self.matcher.find(region=region, shot=shot, **end_args):
-                    raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
-            m = self.matcher.find(name, region, threshold, shot=shot, grayscale=grayscale)
-            if (m is not None) == present:
-                return m
-            if skip_if and self.matcher.find(skip_if, region, threshold, shot=shot):
-                raise NotSeen(f"nicht erschienen, stattdessen '{skip_if}' sichtbar")
-            if time.perf_counter() >= end:
-                if present:
-                    best = self.matcher.best_score(name, region, shot=shot, grayscale=grayscale)
-                    raise StepFailed(f"Bild '{name}' nicht gefunden nach {timeout:.1f} s "
-                                     f"(beste Übereinstimmung {best:.2f}, Schwelle {threshold:.2f})")
-                raise StepFailed(f"Bild '{name}' ist nach {timeout:.1f} s immer noch sichtbar "
-                                 f"(Übereinstimmung {m.score:.2f})", (m.x, m.y, m.w, m.h))
+            timed_out = time.perf_counter() >= end
+            if spot and not timed_out and n % self.FULL_EVERY != self.FULL_EVERY - 1:
+                small = self._spot_region(region, spot)
+                m = self.matcher.find(name, small, threshold, shot=screen.grab(small), grayscale=grayscale)
+                if m:
+                    self._spots[name] = (m.x, m.y, m.w, m.h)
+                    return m
+            else:
+                shot = screen.grab(region)
+                for owner, end_args in self._ends:
+                    if self.matcher.find(region=region, shot=shot, **end_args):
+                        raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
+                m = self.matcher.find(name, region, threshold, shot=shot, grayscale=grayscale)
+                if (m is not None) == present:
+                    if m:
+                        self._spots[name] = (m.x, m.y, m.w, m.h)
+                    return m
+                if skip_if and self.matcher.find(skip_if, region, threshold, shot=shot):
+                    raise NotSeen(f"nicht erschienen, stattdessen '{skip_if}' sichtbar")
+                if timed_out:
+                    if present:
+                        best = self.matcher.best_score(name, region, shot=shot, grayscale=grayscale)
+                        raise StepFailed(f"Bild '{name}' nicht gefunden nach {timeout:.1f} s "
+                                         f"(beste Übereinstimmung {best:.2f}, Schwelle {threshold:.2f})")
+                    raise StepFailed(f"Bild '{name}' ist nach {timeout:.1f} s immer noch sichtbar "
+                                     f"(Übereinstimmung {m.score:.2f})", (m.x, m.y, m.w, m.h))
+            n += 1
             self.control.sleep(self.matching["poll_interval"])
             region = self._region()
 
@@ -141,6 +170,8 @@ class Runner:
         threshold = float(opts.get("threshold", self.matching["threshold"]))
         gs = opts.get("grayscale")
         a, v = step.action, step.value
+        if isinstance(v, str) and v.startswith("$"):
+            v = self.params[v[1:]]                  # gewählte Einstellung, z. B. $klicks
 
         if a in ("click", "double_click", "right_click", "move"):
             m = self._wait_image(v, timeout, threshold, grayscale=gs)
@@ -179,6 +210,16 @@ class Runner:
         if a == "first_seen":
             case, m = self._wait_first(v, timeout, threshold, grayscale=gs)
             return f"'{case['if']}' erschienen (Treffer {m.score:.2f})", case["then"]
+        if a == "click_here":
+            # Ausgangsposition bei jedem (Neu-)Start des Schritts: nach einer Pause wegen
+            # Mausbewegung wird an der neuen Stelle weitergeklickt
+            anchor = tuple(pyautogui.position())
+            human.forget_position()
+            done = 0
+            while v == 0 or done < v:
+                human.click_here(anchor)
+                done += 1
+            return f"{done} Klicks bei {anchor}"
         if a == "end":
             raise EndReached(f"Ende: {v}" if v not in (None, True) else "end-Schritt erreicht")
         if a == "expect_not":
@@ -214,20 +255,39 @@ class Runner:
         region = self._region()
         end = time.perf_counter() + timeout
         best_fill = 0.0
+        spot_key = "bar:" + "|".join(names)
+
+        def check(frames, area, shot):
+            """Leiste mit passenden Füllfarben in diesem Ausschnitt suchen."""
+            nonlocal best_fill
+            for frame, profiles in frames:
+                for m in self.matcher.find_all_masked(frame, area, threshold, shot):
+                    x, y = m.x - area[0], m.y - area[1]
+                    crop = shot[y:y + m.h, x:x + m.w]
+                    share = ocr.bar_fill_ok(profiles, crop)
+                    best_fill = max(best_fill, share)
+                    if share >= 0.9:
+                        self._spots[spot_key] = (m.x, m.y, m.w, m.h, frame)
+                        return m, crop
+            return None
+
+        # schnell: an der letzten Fundstelle, zuerst mit der Höhenvariante, die zuletzt gepasst hat
+        if spot_key in self._spots:
+            *box, last_frame = self._spots[spot_key]
+            small = self._spot_region(region, box)
+            ordered = sorted(bars, key=lambda b: b[0] != last_frame)
+            found = check(ordered, small, screen.grab(small))
+            if found:
+                return found
         while True:
             self.control.check()
             shot = screen.grab(region)
             for owner, end_args in self._ends:
                 if self.matcher.find(region=region, shot=shot, **end_args):
                     raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
-            for frame, profiles in bars:
-                for m in self.matcher.find_all_masked(frame, region, threshold, shot):
-                    x, y = m.x - region[0], m.y - region[1]
-                    crop = shot[y:y + m.h, x:x + m.w]
-                    share = ocr.bar_fill_ok(profiles, crop)
-                    best_fill = max(best_fill, share)
-                    if share >= 0.9:
-                        return m, crop
+            found = check(bars, region, shot)
+            if found:
+                return found
             if time.perf_counter() >= end:
                 raise NotSeen(f"Leiste {' / '.join(names)} nicht gefunden"
                               + (f" (Rahmen gefunden, Farben passen nur zu {best_fill:.0%})" if best_fill else ""))
@@ -497,7 +557,11 @@ class Runner:
         finally:
             self._ends = [x for x in self._ends if x[0] is not token]
 
-    def run(self, scenario):
+    def run(self, scenario, params=None):
+        """params: gewählte Einstellungen {name: wert}; fehlende nehmen die Vorgabe aus der Sequenz."""
+        self.params = {name: (params or {}).get(name, spec["default"]) for name, spec in scenario.params.items()}
+        if self.params:
+            log.info("Einstellungen: %s", self.params)
         human_cfg = config.merged_human(self.cfg, scenario.human)
         human = Human(self.control, human_cfg)
         self.matching = {**self.cfg["matching"], **scenario.matching}

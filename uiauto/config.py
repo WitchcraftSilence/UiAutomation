@@ -11,6 +11,10 @@ DEFAULTS = {
         "class": "MozillaWindowClass",   # Firefox
         "title_contains": "",            # z. B. Titel der App, falls mehrere Fenster offen
     },
+    "notifications": {
+        "seconds": 2,                   # so lange bleiben Meldungen stehen; 0 = keine (nur im Log)
+        "error_seconds": 6,             # Fehler bleiben länger stehen und kommen auch bei seconds: 0
+    },
     "paths": {
         "scenarios": "scenarios",
         "images": "images",
@@ -45,6 +49,13 @@ DEFAULTS = {
         "typing_pause": [0.25, 0.8],
         "scroll_delay": [0.04, 0.14],   # Abstand zwischen Mausrad-Rasten
         "interference_tolerance": 10,   # px; weicht die Maus mehr ab, hat der Benutzer sie bewegt
+        # click_here: schnelles Klicken an der Mausposition (schneller Mensch: etwa 7-9 Klicks/s)
+        "rapid_click_hold": [0.04, 0.08],   # Maustaste gedrückt
+        "rapid_click_gap": [0.05, 0.10],    # Pause bis zum nächsten Klick
+        "rapid_jitter": 1,                  # px, um die die Maus gelegentlich verrutscht (0 = nie)
+        "rapid_jitter_chance": 0.2,         # Anteil der Klicks, bei denen sie verrutscht
+        "rapid_pause_chance": 0.03,         # gelegentliches kurzes Stocken
+        "rapid_pause": [0.15, 0.4],
     },
 }
 

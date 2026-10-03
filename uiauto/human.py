@@ -167,6 +167,26 @@ class Human:
             pyautogui.moveTo(*pos, _pause=False)
             self._expected = pos
 
+    def click_here(self, anchor):
+        """Ein schneller Klick an der Ausgangsposition anchor, mit minimalem Zittern wie bei einer Hand."""
+        self.control.check()
+        self._check_interference()
+        j = self.cfg["rapid_jitter"]
+        if j and random.random() < self.cfg["rapid_jitter_chance"]:
+            pos = (anchor[0] + random.randint(-j, j), anchor[1] + random.randint(-j, j))
+        else:
+            pos = tuple(anchor)             # meist bleibt die Hand ruhig
+        if pos != tuple(pyautogui.position()):
+            pyautogui.moveTo(*pos, _pause=False)
+        self._expected = pos
+        pyautogui.mouseDown(_pause=False)
+        time.sleep(uniform(self.cfg["rapid_click_hold"]))
+        pyautogui.mouseUp(_pause=False)
+        gap = uniform(self.cfg["rapid_click_gap"])
+        if random.random() < self.cfg["rapid_pause_chance"]:
+            gap += uniform(self.cfg["rapid_pause"])
+        self.control.sleep(gap)
+
     def click(self, x, y, button="left", clicks=1, target_size=20):
         self.move_to(x, y, target_size)
         self.control.sleep(uniform(self.cfg["hover_time"]))

@@ -16,7 +16,9 @@ Start: `.venv\Scripts\pythonw.exe run.pyw`. Am besten legt man dafür eine Verkn
 
 1. Firefox von Hand an die gewünschte Stelle bringen.
 2. Die Sequenz per Hotkey (z. B. `Strg+Alt+1`) oder über das Tray-Menü starten.
-3. Das Tray-Icon zeigt den Zustand: grün = bereit, rot = läuft, gelb = pausiert.
+3. Das Steuerfenster (und das Tray-Icon) zeigen den Zustand: grün = bereit, rot = läuft, gelb = pausiert.
+
+Beim Start öffnet sich ein kleines **Steuerfenster** mit allen Sequenzen und den Schaltflächen Pause/Weiter, Stopp, Referenzbild aufnehmen, Letzten Bericht öffnen, Ordner, Neu laden und Beenden. Mit X wird es nur ausgeblendet; Doppelklick auf das Tray-Icon (oder „Fenster anzeigen“) holt es zurück. Während ein Ablauf pausiert ist, kann direkt eine andere Sequenz gestartet werden; die pausierte wird dann beendet.
 
 | Hotkey | Funktion |
 |---|---|
@@ -40,6 +42,7 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 | `press` | `enter`, `tab`, `ctrl+s`, … | `times` |
 | `scroll` | Rasten (negativ = nach unten) | |
 | `wait` | Sekunden oder `[min, max]` | |
+| `click_here` | Anzahl Klicks (`0` = bis Stopp) | schnell dort klicken, wo die Maus steht (etwa 7–9 Klicks/s; die Maus verrutscht nur selten um 1 px; Tempo und Zittern über `rapid_*` in `human`) |
 | `end` | optionaler Grund, z. B. `end: Niederlage` (oder nur `- end`) | beendet den Ablauf sofort erfolgreich, meist in `if_seen`/`then` |
 
 Jede Aktion kann zusätzlich eine `note` als Kommentar im Bericht bekommen.
@@ -93,6 +96,20 @@ In `when` erlaubt: `x`, `total`, ganze Zahlen, `+ - * //` und Vergleiche (`>= > 
 ```
 
 Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (letztes Segment nicht grün), sucht das Tool unter den verfügbaren Einheiten eine derselben Art mit vollem Balken. Nur wenn es einen Ersatz gibt, nimmt es die beschädigte Einheit heraus (Klick) und setzt den Ersatz ein (Klick). Nach jedem Klick prüft es, ob sich die Armee wirklich verändert hat. Die Einheitenart wird über das Porträt verglichen und muss nicht vorher aufgenommen werden. Leere Felder (mit `empty`) werden zuerst aufgefüllt, mit einer gesunden Einheit, deren Art schon in der Armee steht.
+
+### Einstellungen im Steuerfenster
+
+```yaml
+params:
+  klicks:
+    options: [5, 10, 25, 50]   # erscheinen als Auswahlknöpfe unter der Sequenz
+    default: 25                # optional, sonst die erste Möglichkeit
+
+steps:
+  - click_here: $klicks        # $name setzt den gewählten Wert ein
+```
+
+Die Auswahl gilt für den Start über das Fenster und über den Hotkey. Sie bleibt beim Neu laden erhalten, aber nicht über einen Neustart des Tools hinweg.
 
 ### Mehrere Schleifen nacheinander
 

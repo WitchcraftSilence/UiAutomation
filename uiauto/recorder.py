@@ -16,10 +16,11 @@ from . import screen
 
 
 class Recorder:
-    def __init__(self, root, images_dir, notify):
+    def __init__(self, root, images_dir, notify, on_done=lambda: None):
         self.root = root
         self.images_dir = images_dir
         self.notify = notify
+        self.on_done = on_done          # nach Speichern oder Abbrechen (z. B. Steuerfenster wieder zeigen)
 
     def start(self):
         left, top, width, height = screen.virtual_screen()
@@ -50,7 +51,7 @@ class Recorder:
         canvas.bind("<ButtonPress-1>", self._on_press)
         canvas.bind("<B1-Motion>", self._on_drag)
         canvas.bind("<ButtonRelease-1>", self._on_release)
-        win.bind("<Escape>", lambda e: self._close())
+        win.bind("<Escape>", lambda e: (self._close(), self.on_done()))
         win.focus_force()
 
     def _on_press(self, event):
@@ -91,6 +92,7 @@ class Recorder:
                                       "Name des Bildes (ohne .png):",
                                       initialvalue=default, parent=self.root)
         if not name:
+            self.on_done()
             return
         name = re.sub(r'[<>:"/\\|?*]+', "_", name.strip())
         path = self.images_dir / f"{name}.png"
@@ -99,6 +101,7 @@ class Recorder:
         self.root.clipboard_clear()
         self.root.clipboard_append(rel)
         self.notify("Referenzbild gespeichert", f"{rel} ({r - l}×{b - t}) – Name in Zwischenablage")
+        self.on_done()
 
     def _close(self):
         if self._win:

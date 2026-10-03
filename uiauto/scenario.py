@@ -1,4 +1,5 @@
 """Szenarien (Sequenzen) aus YAML laden und prüfen."""
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,6 +28,7 @@ ACTIONS = {
     "scroll": False,
     "wait": False,
     "end": False,           # beendet den Ablauf sofort erfolgreich; Wert = optionaler Grund
+    "click_here": False,    # so oft schnell dort klicken, wo die Maus steht (0 = bis Stopp)
     "repeat": False,        # verschachtelte Schleife: Wert wie repeat der Sequenz, Schritte unter 'steps'
 }
 OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if", "steps", "think",
@@ -73,6 +75,7 @@ class Scenario:
     precondition: list = field(default_factory=list)
     steps: list = field(default_factory=list)
     repeat: dict = None     # {"while", "until", "grayscale", "timeout", "threshold", "max"}; None = einmal
+    params: dict = field(default_factory=dict)     # name -> {"options": [...], "default": wert}; Werte als $name
 
 
 def _parse_step(raw, where, images_dir):
@@ -111,6 +114,9 @@ def _parse_step(raw, where, images_dir):
     if action == "wait" and not (isinstance(value, (int, float))
                                  or (isinstance(value, list) and len(value) == 2)):
         raise ScenarioError(f"{where}: wait erwartet Sekunden oder [min, max]")
+    if action == "click_here" and not (_is_param_ref(value)
+                                       or isinstance(value, int) and not isinstance(value, bool) and value >= 0):
+        raise ScenarioError(f"{where}: click_here erwartet die Anzahl Klicks (0 = bis Stopp) oder $einstellung")
     if action == "scroll" and not isinstance(value, int):
         raise ScenarioError(f"{where}: scroll erwartet ganze Zahl (Rasten, negativ = nach unten)")
     if "offset" in options:
@@ -248,6 +254,43 @@ def _parse_repeat(raw, where, images_dir):
             "threshold": raw.get("threshold"), "max": max_rounds}
 
 
+def _is_param_ref(value):
+    return isinstance(value, str) and re.fullmatch(r"\$\w+", value) is not None
+
+
+def _parse_params(raw, where):
+    """params: {name: [optionen]} oder {name: {options: [...], default: wert}}; Vorgabe sonst die erste Option."""
+    params = {}
+    for name, spec in (raw or {}).items():
+        if isinstance(spec, list):
+            spec = {"options": spec}
+        if not isinstance(spec, dict) or not isinstance(spec.get("options"), list) or not spec["options"]:
+            raise ScenarioError(f"{where} / {name}: erwartet eine Liste von Möglichkeiten, z. B. [5, 10, 25]")
+        default = spec.get("default", spec["options"][0])
+        if default not in spec["options"]:
+            raise ScenarioError(f"{where} / {name}: Vorgabe {default!r} ist keine der Möglichkeiten")
+        params[str(name)] = {"options": spec["options"], "default": default}
+    return params
+
+
+def _check_param_refs(steps, params, where):
+    """Jedes $name muss in params stehen; bei click_here müssen alle Möglichkeiten passende Zahlen sein."""
+    for st in steps:
+        if _is_param_ref(st.value):
+            name = st.value[1:]
+            if name not in params:
+                raise ScenarioError(f"{where}: {st.value} ist unter params nicht definiert")
+            if st.action == "click_here" and not all(
+                    isinstance(o, int) and not isinstance(o, bool) and o >= 0 for o in params[name]["options"]):
+                raise ScenarioError(f"{where}: params/{name} muss für click_here ganze Zahlen >= 0 enthalten")
+        for key in ("then", "if_missing", "steps"):
+            if isinstance(st.options.get(key), list):
+                _check_param_refs(st.options[key], params, where)
+        if st.action == "first_seen":
+            for case in st.value:
+                _check_param_refs(case["then"], params, where)
+
+
 def load(path, images_dir):
     path = Path(path)
     with open(path, encoding="utf-8") as f:
@@ -270,7 +313,9 @@ def load(path, images_dir):
         precondition=parse_list("precondition"),
         steps=parse_list("steps"),
         repeat=_parse_repeat(data.get("repeat"), f"{path.name} / repeat", images_dir),
+        params=_parse_params(data.get("params"), f"{path.name} / params"),
     )
+    _check_param_refs(scenario.precondition + scenario.steps, scenario.params, path.name)
     if not scenario.steps:
         raise ScenarioError(f"{path.name}: keine Schritte (steps) definiert")
     return scenario
