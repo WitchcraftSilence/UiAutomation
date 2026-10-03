@@ -164,15 +164,9 @@ class Runner:
                 raise NotSeen() from None
             return f"erschienen (Treffer {m.score:.2f})", opts["then"]
         if a == "if_counter":
-            tpl = self.matcher.template(v)
-            anchor_w, counter_x = ocr.counter_layout(tpl)
-            anchor = f"{v} [fester Teil]"
-            self.matcher.register(anchor, tpl[:, :anchor_w])
-            try:
-                m = self._wait_image(anchor, timeout, threshold, grayscale=gs)
-            except StepFailed:
-                raise NotSeen(f"Leiste '{v}' nicht gefunden") from None
-            crop = screen.grab((m.x + counter_x, m.y, tpl.shape[1] - counter_x, tpl.shape[0]))
+            m, bar = self._find_bar(v, timeout, threshold)
+            cx = ocr.counter_x_live(bar)
+            crop = bar[8:-7, cx:-4]     # nur die Textzeilen, ohne Rahmenstrich rechts (würde als "1" gelesen)
             value, votes, texts = ocr.read_fraction(crop)
             if value is None:
                 raise NotSeen(f"Zähler nicht lesbar (gelesen: {', '.join(repr(t) for t in texts)})")
@@ -204,6 +198,41 @@ class Runner:
             self.control.sleep(seconds)
             return f"{seconds:.2f} s"
         raise StepFailed(f"Unbekannte Aktion {a}")
+
+    def _find_bar(self, names, timeout, threshold):
+        """Leiste (Fortschrittsbalken) finden: Rahmen und Symbolfeld vergleichen, dann prüfen,
+        ob die Leiste nur aus den beiden Füllfarben der Vorlage besteht. Gibt (treffer, bild) zurück."""
+        bars = []
+        for name in names:
+            tpl = self.matcher.template(name)
+            profiles = ocr.fill_profiles(tpl)
+            # Der Browser rundet die Höhe der Leiste je nach Lage um 1 px auf oder ab
+            for dh, variant in ocr.height_variants(tpl).items():
+                frame = f"{name} [Rahmen {dh:+d}]"
+                self.matcher.register(frame, variant, mask=ocr.bar_frame(variant))
+                bars.append((frame, profiles))
+        region = self._region()
+        end = time.perf_counter() + timeout
+        best_fill = 0.0
+        while True:
+            self.control.check()
+            shot = screen.grab(region)
+            for owner, end_args in self._ends:
+                if self.matcher.find(region=region, shot=shot, **end_args):
+                    raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
+            for frame, profiles in bars:
+                for m in self.matcher.find_all_masked(frame, region, threshold, shot):
+                    x, y = m.x - region[0], m.y - region[1]
+                    crop = shot[y:y + m.h, x:x + m.w]
+                    share = ocr.bar_fill_ok(profiles, crop)
+                    best_fill = max(best_fill, share)
+                    if share >= 0.9:
+                        return m, crop
+            if time.perf_counter() >= end:
+                raise NotSeen(f"Leiste {' / '.join(names)} nicht gefunden"
+                              + (f" (Rahmen gefunden, Farben passen nur zu {best_fill:.0%})" if best_fill else ""))
+            self.control.sleep(self.matching["poll_interval"])
+            region = self._region()
 
     # ------------------------------------------------------------ Einheiten tauschen
 

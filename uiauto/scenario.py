@@ -19,7 +19,7 @@ ACTIONS = {
     "expect": True,
     "expect_not": True,
     "if_seen": True,        # führt 'then' nur aus, wenn das Bild erscheint
-    "if_counter": True,     # liest "x/total" rechts in der Leiste; 'then' nur, wenn 'when' zutrifft
+    "if_counter": False,    # Leiste (Bild oder Liste) finden, "x/total" rechts lesen; 'then', wenn 'when' zutrifft
     "replace_damaged": False,   # {army: bild, pool: bild}: beschädigte Einheiten gegen gesunde gleicher Art tauschen
     "first_seen": False,    # Liste von {if: bild, then: [...]}: das zuerst erscheinende Bild gewinnt
     "type": False,
@@ -50,6 +50,8 @@ class Step:
             text = "repeat while: " + " | ".join(self.value["while"])
             if self.value["until"]:
                 text += f" until: {self.value['until']}"
+        elif self.action == "if_counter":
+            text = "if_counter: " + " | ".join(self.value)
         elif self.action == "replace_damaged":
             text = f"replace_damaged: {self.value['army']} ← {self.value['pool']}"
         elif self.action == "first_seen":
@@ -120,7 +122,7 @@ def _parse_step(raw, where, images_dir):
                 offset_px(v, 1, 1)
         except ValueError:
             raise ScenarioError(f"{where}: offset erwartet [dx, dy] in Pixeln oder relativ wie [0, 1.5h]") from None
-    has_image = ACTIONS[action] or action == "first_seen"
+    has_image = ACTIONS[action] or action in ("first_seen", "if_counter")
     if "grayscale" in options and not (has_image and isinstance(options["grayscale"], bool)):
         raise ScenarioError(f"{where}: grayscale erwartet true/false und gilt nur für Aktionen mit Bild")
     if action == "if_counter":
@@ -128,10 +130,14 @@ def _parse_step(raw, where, images_dir):
             ocr.compile_condition(options.get("when", ""))
         except (ValueError, SyntaxError) as e:
             raise ScenarioError(f"{where}: when erwartet eine Bedingung wie 'x >= total - 2' ({e})") from None
-        try:
-            ocr.counter_layout(screen.imread(images_dir / str(value)))
-        except ValueError as e:
-            raise ScenarioError(f"{where}: im Bild '{value}' keinen Zähler gefunden: {e}") from None
+        value = [str(v) for v in value] if isinstance(value, list) else [str(value)]
+        for img in value:
+            if not (images_dir / img).exists():
+                raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
+            try:
+                ocr.fill_profiles(screen.imread(images_dir / img))
+            except ValueError as e:
+                raise ScenarioError(f"{where}: {img}: {e}") from None
     elif "when" in options:
         raise ScenarioError(f"{where}: 'when' gibt es nur bei if_counter")
     if action in ("if_seen", "if_counter"):

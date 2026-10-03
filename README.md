@@ -70,14 +70,14 @@ Ohne `timeout` wartet `if_seen` die vollen 10 s, bevor es aufgibt. Darum sollte 
 ### Zähler lesen
 
 ```yaml
-  - if_counter: Leiste.png       # Bild der ganzen Leiste, z. B. "[Symbol] Geisterschule   2/132"
+  - if_counter: Leiste.png       # Bild der ganzen Leiste; mehrere Farbschemata: [a.png, b.png]
     when: x >= total - 2         # Bedingung mit x und total
     timeout: 2
     then:
       - end: Ziel erreicht
 ```
 
-Das Tool sucht die Leiste über ihren festen linken Teil (Symbol und Beschriftung), liest rechts den Zähler `x/total` mit der Windows-Texterkennung und führt `then` nur aus, wenn die Bedingung zutrifft. Der Zähler wird mehrfach in verschiedenen Vergrößerungen gelesen und nur ein Ergebnis angenommen, das die Mehrheit bestätigt. Ist er nicht sicher lesbar, wird der Schritt übersprungen (steht im Bericht) und beim nächsten Mal erneut geprüft. Darum besser `>=` als `==` verwenden.
+Die Leiste ist ein Fortschrittsbalken: hell = erreicht, dunkel = offen. Das Tool findet sie über die Teile, die sich nie ändern (Rahmen und Hintergrund des Symbolfelds links), und prüft dann, ob die Leiste nur aus den beiden Füllfarben der Vorlage besteht. Beschriftung, Symbol und Füllstand dürfen also wechseln, Leisten in anderen Farben (z. B. anderer Gilden) werden ignoriert. Die Vorlage muss deshalb eine **teilweise gefüllte** Leiste zeigen. Dann liest es rechts den Zähler `x/total` mit der Windows-Texterkennung und führt `then` nur aus, wenn die Bedingung zutrifft. Der Zähler wird mehrfach in verschiedenen Vergrößerungen gelesen und nur ein Ergebnis angenommen, das die Mehrheit bestätigt. Ist er nicht sicher lesbar, wird der Schritt übersprungen (steht im Bericht) und beim nächsten Mal erneut geprüft. Darum besser `>=` als `==` verwenden.
 
 In `when` erlaubt: `x`, `total`, ganze Zahlen, `+ - * //` und Vergleiche (`>= > <= < == !=`).
 

@@ -15,7 +15,7 @@ steps:
         - GG1 Verteidigung A.png
       until: GG Niederlage.png
     steps:                      # gleiche Höhe wie "repeat:"
-      - if_counter: GG Status.png   # Zähler "x/total" rechts in der Leiste lesen
+      - if_counter: GG Status V2.png   # Leiste an ihren Farben erkennen, Zähler im Kasten rechts lesen
         when: x >= total - 2
         timeout: 2              # so lange wird die Leiste gesucht
         think: 0

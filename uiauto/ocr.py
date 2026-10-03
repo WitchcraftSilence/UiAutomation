@@ -78,6 +78,60 @@ def read_fraction(img):
 
 # ---------------------------------------------------------------- Zähler in einer Leiste
 
+ICON_W = 35             # Breite des Symbolfelds links (Symbol wechselt, Hintergrund nicht)
+FILL_ROWS = slice(4, 9) # Zeilen direkt unter dem oberen Rahmen: Füllfarbe der Leiste, nie Text
+
+
+def bar_frame(template):
+    """Maske für die Teile einer Leiste, die sich nie ändern: Rahmen oben/unten und Rand des Symbolfelds.
+
+    Die Leiste selbst ist ein Fortschrittsbalken (hell = erreicht, dunkel = offen) und wird
+    darum hier nicht verglichen, sondern danach mit bar_fill_ok geprüft.
+    """
+    mask = np.zeros(template.shape[:2], np.uint8)
+    mask[:3] = 255
+    mask[-3:] = 255
+    mask[3:7, 2:ICON_W - 3] = 255
+    mask[-7:-3, 2:ICON_W - 3] = 255
+    return mask
+
+
+def height_variants(template):
+    """Die Vorlage in ihrer Höhe sowie 1 px niedriger und höher (Zeile in der Mitte entfernt/verdoppelt)."""
+    mid = template.shape[0] // 2
+    return {0: template,
+            -1: np.delete(template, mid, axis=0),
+            +1: np.insert(template, mid, template[mid], axis=0)}
+
+
+def fill_profiles(template):
+    """Die beiden Füllfarben der Leiste (gefüllt, offen) als Spaltenprofile aus der Vorlage.
+
+    Die Vorlage muss teilweise gefüllt sein, sonst fehlt eine der beiden Farben.
+    """
+    band = template[FILL_ROWS, ICON_W + 3:-6].astype(float)            # Zeilen x Spalten x BGR
+    light = band.mean(axis=(0, 2))
+    cut = (light.max() + light.min()) / 2
+    if light.max() - light.min() < 25:
+        raise ValueError("Leiste in der Vorlage nur in einer Farbe; bitte eine teilweise gefüllte Leiste aufnehmen")
+    return [np.median(band[:, light >= cut], axis=1), np.median(band[:, light < cut], axis=1)]
+
+
+def bar_fill_ok(profiles, crop, max_rms=15.0, min_share=0.9):
+    """Hat jede Spalte der Leiste eine der beiden Füllfarben? Gibt den Anteil passender Spalten zurück."""
+    band = crop[FILL_ROWS, ICON_W + 3:-6].astype(float)
+    best = np.min([np.sqrt(((band - prof[:, None, :]) ** 2).mean(axis=(0, 2))) for prof in profiles], axis=0)
+    return float((best < max_rms).mean())
+
+
+def counter_x_live(crop):
+    """Beginn des Zählers in der aktuell sichtbaren Leiste (nach der letzten Textlücke)."""
+    try:
+        return counter_layout(crop)[1]
+    except ValueError:
+        return max(ICON_W, crop.shape[1] - 110)
+
+
 def counter_layout(template):
     """Teilt das Bild einer Leiste in festen Teil (Anker) und Zähler.
 
