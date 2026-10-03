@@ -24,7 +24,6 @@ steps:
     grayscale: false            # nicht mit dem grauen End-Screen verwechseln
   - wait_for: PvP2 EinheitenErsetzen R.png
   - press: r
-  - wait_for: PvP3 Fight B.png
   - press: b
   - wait_for: PvP4 OK ESC.png
     timeout: 30                 # Kampf kann dauern

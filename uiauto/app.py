@@ -28,6 +28,15 @@ def _icon_image(color):
     return img
 
 
+def _hotkey_order(scenario):
+    """Sortierung fürs Menü: nach Hotkey (Zahlen numerisch, also 2 vor 10), ohne Hotkey ans Ende."""
+    if not scenario.hotkey:
+        return (1, (), scenario.name.lower())
+    parts = tuple((0, int(p), "") if p.isdigit() else (1, 0, p)
+                  for p in reversed(scenario.hotkey.lower().replace(" ", "").split("+")))
+    return (0, parts, scenario.name.lower())
+
+
 class App:
     def __init__(self):
         self.cfg = config.load()
@@ -92,8 +101,9 @@ class App:
     # ------------------------------------------------------------ Szenarien
 
     def load_scenarios(self):
-        self.scenarios, errors = scenario_mod.load_all(self.cfg["paths"]["scenarios"],
-                                                       self.cfg["paths"]["images"])
+        scenarios, errors = scenario_mod.load_all(self.cfg["paths"]["scenarios"],
+                                                  self.cfg["paths"]["images"])
+        self.scenarios = sorted(scenarios, key=_hotkey_order)
         for e in errors:
             log.error(e)
         if errors:
