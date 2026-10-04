@@ -20,11 +20,11 @@ steps:
       until: GG Niederlage.png
     steps:                      # gleiche Höhe wie "repeat:"
       - if_counter: GG Status V2.png   # Leiste an ihren Farben erkennen, Zähler im Kasten rechts lesen
-        when: x >= total - 2
+        when: x >= total - 3
         timeout: 2              # so lange wird die Leiste gesucht
         think: 0
         then:
-          - end: Ziel erreicht (total - 2)
+          - end: Ziel erreicht (total - 3)
       - press: a
       - wait_for: GG2 Ersetzen R.png
       - press: r
