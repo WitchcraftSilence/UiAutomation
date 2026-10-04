@@ -78,21 +78,24 @@ def read_fraction(img):
 
 # ---------------------------------------------------------------- Zähler in einer Leiste
 
-ICON_W = 35             # Breite des Symbolfelds links (Symbol wechselt, Hintergrund nicht)
+ICON_W = 35             # Breite des Symbolfelds links (Symbol und Hintergrundfarbe wechseln je nach Gilde)
 FILL_ROWS = slice(4, 9) # Zeilen direkt unter dem oberen Rahmen: Füllfarbe der Leiste, nie Text
 
 
 def bar_frame(template):
-    """Maske für die Teile einer Leiste, die sich nie ändern: Rahmen oben/unten und Rand des Symbolfelds.
+    """Maske für die Teile einer Leiste, die sich nie ändern: Rahmen oben/unten, linker Rand
+    und der helle Trennstrich zwischen Symbolfeld und Leiste.
 
+    Das Innere des Symbolfelds hat je nach Gilde eine andere Farbe (blau, rot, ...), der
+    rechte Rand ist nicht bei allen Leisten gleich aufgebaut; beides wird nicht verglichen.
     Die Leiste selbst ist ein Fortschrittsbalken (hell = erreicht, dunkel = offen) und wird
     darum hier nicht verglichen, sondern danach mit bar_fill_ok geprüft.
     """
     mask = np.zeros(template.shape[:2], np.uint8)
     mask[:3] = 255
     mask[-3:] = 255
-    mask[3:7, 2:ICON_W - 3] = 255
-    mask[-7:-3, 2:ICON_W - 3] = 255
+    mask[:, :4] = 255
+    mask[:, ICON_W - 3:ICON_W - 1] = 255
     return mask
 
 
