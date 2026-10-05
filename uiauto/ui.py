@@ -17,7 +17,8 @@ class ControlWindow:
         self.win.title("UI-Automation")
         self.win.resizable(False, False)
         self.win.protocol("WM_DELETE_WINDOW", self.hide)
-        self.topmost = tk.BooleanVar(value=False)
+        self.topmost = tk.BooleanVar(value=True)
+        self.win.attributes("-topmost", True)
         self._scenario_buttons = []
         self._hidden_for_record = False
 
