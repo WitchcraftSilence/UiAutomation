@@ -1,1 +1,1 @@
-.venv\Scripts\pythonw.exe run.pyw
+call .venv\Scripts\pythonw.exe run.pyw

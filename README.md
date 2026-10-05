@@ -35,8 +35,8 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 
 | Aktion | Wert | Optionen |
 |---|---|---|
-| `click`, `double_click`, `right_click`, `move` | Bild | `offset: [dx, dy]`, `timeout`, `threshold`, `grayscale` |
-| `wait_for`, `expect` | Bild | `timeout`, `threshold`, `grayscale` |
+| `click`, `double_click`, `right_click`, `move` | Bild | `offset: [dx, dy]`, `timeout`, `threshold`, `grayscale`, `check_end` |
+| `wait_for`, `expect` | Bild | `timeout`, `threshold`, `grayscale`, `check_end` |
 | `expect_not` | Bild (wartet, bis es verschwunden ist) | `timeout`, `threshold`, `grayscale` |
 | `type` | Text (Umlaute möglich) | |
 | `press` | `enter`, `tab`, `ctrl+s`, … | `times` |
@@ -163,7 +163,15 @@ repeat:
   threshold: 0.9    # optional
 ```
 
-Die Wiederholung endet erfolgreich, sobald das `while`-Bild nicht mehr erscheint oder das `until`-Bild auftaucht. Das `until`-Bild wird bei jeder Bildsuche mitgeprüft, also auch mitten in einer Runde. Fehlt das `while`-Bild schon vor der ersten Runde, gilt der Ablauf als fehlgeschlagen.
+Die Wiederholung endet erfolgreich, sobald das `while`-Bild nicht mehr erscheint oder das `until`-Bild auftaucht. Das `until`-Bild wird bei jeder Suche über das ganze Fenster mitgeprüft, also auch mitten in einer Runde. Findet ein Schritt sein Bild schnell an der gemerkten Stelle wieder, entfällt diese Prüfung. Steht derselbe Knopf auch im Enddialog (z. B. OK im Niederlage-Fenster), gibt man dem Schritt `check_end: true`. Dann wird vor dem Treffer noch einmal nach dem `until`-Bild gesucht, was 70–150 ms kostet:
+
+```yaml
+  - wait_for: ok.png
+    check_end: true   # ok.png steht auch im Niederlage-Dialog
+  - press: esc
+```
+
+Fehlt das `while`-Bild schon vor der ersten Runde, gilt der Ablauf als fehlgeschlagen.
 
 ### Farbe statt Graustufen
 

@@ -97,12 +97,24 @@ class Runner:
         bottom = min(region[1] + region[3], y + h + m)
         return left, top, right - left, bottom - top
 
-    def _wait_image(self, name, timeout, threshold, present=True, grayscale=None, skip_if=None):
+    def _check_ends(self, region, shot=None):
+        """Wirft EndReached, wenn ein until-Bild einer aktiven Schleife im Fenster zu sehen ist."""
+        if not self._ends:
+            return
+        if shot is None:
+            shot = screen.grab(region)
+        for owner, end_args in self._ends:
+            if self.matcher.find(region=region, shot=shot, **end_args):
+                raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
+
+    def _wait_image(self, name, timeout, threshold, present=True, grayscale=None, skip_if=None, check_end=False):
         """Wartet, bis das Bild erscheint (bzw. bei present=False verschwindet).
 
         skip_if: zweites Bild; ist es zu sehen (und name nicht), wird NotSeen geworfen.
         Wurde das Bild schon einmal gefunden, wird meist nur um diese Stelle gesucht (schneller);
         jede FULL_EVERY-te Suche und die letzte vor dem Aufgeben gehen über das ganze Fenster.
+        check_end: auch ein Treffer der schnellen Suche gilt erst nach einer Prüfung der Endbilder
+        im ganzen Fenster (kostet je Treffer 70-150 ms, darum nur auf Wunsch).
         """
         region = self._region()
         end = time.perf_counter() + timeout
@@ -115,13 +127,13 @@ class Runner:
                 small = self._spot_region(region, spot)
                 m = self.matcher.find(name, small, threshold, shot=screen.grab(small), grayscale=grayscale)
                 if m:
+                    if check_end:       # z. B. derselbe OK-Knopf im Niederlage-Dialog
+                        self._check_ends(region)
                     self._spots[name] = (m.x, m.y, m.w, m.h)
                     return m
             else:
                 shot = screen.grab(region)
-                for owner, end_args in self._ends:
-                    if self.matcher.find(region=region, shot=shot, **end_args):
-                        raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
+                self._check_ends(region, shot)
                 m = self.matcher.find(name, region, threshold, shot=shot, grayscale=grayscale)
                 if (m is not None) == present:
                     if m:
@@ -147,9 +159,7 @@ class Runner:
         while True:
             self.control.check()
             shot = screen.grab(region)
-            for owner, end_args in self._ends:
-                if self.matcher.find(region=region, shot=shot, **end_args):
-                    raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
+            self._check_ends(region, shot)
             for case in cases:
                 gs = grayscale if case["grayscale"] is None else case["grayscale"]
                 m = self.matcher.find(case["if"], region, threshold, shot=shot, grayscale=gs)
@@ -174,7 +184,7 @@ class Runner:
             v = self.params[v[1:]]                  # gewählte Einstellung, z. B. $klicks
 
         if a in ("click", "double_click", "right_click", "move"):
-            m = self._wait_image(v, timeout, threshold, grayscale=gs)
+            m = self._wait_image(v, timeout, threshold, grayscale=gs, check_end=bool(opts.get("check_end")))
             x, y = click_point(m, human.cfg, opts.get("offset"))
             size = min(m.w, m.h)
             if a == "move":
@@ -186,7 +196,7 @@ class Runner:
                             target_size=size)
             return f"Treffer {m.score:.2f}, geklickt bei ({x}, {y})"
         if a in ("wait_for", "expect"):
-            m = self._wait_image(v, timeout, threshold, grayscale=gs)
+            m = self._wait_image(v, timeout, threshold, grayscale=gs, check_end=bool(opts.get("check_end")))
             return f"Treffer {m.score:.2f} bei ({m.x}, {m.y})"
         if a == "if_seen":
             try:
@@ -282,9 +292,7 @@ class Runner:
         while True:
             self.control.check()
             shot = screen.grab(region)
-            for owner, end_args in self._ends:
-                if self.matcher.find(region=region, shot=shot, **end_args):
-                    raise EndReached(f"Endbild '{end_args['name']}' erkannt", owner)
+            self._check_ends(region, shot)
             found = check(bars, region, shot)
             if found:
                 return found

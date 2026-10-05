@@ -40,6 +40,7 @@ steps:
               - press: b        # Kampfrunde 2
               - wait_for: GG OK ESC.png
                 timeout: 30     # Kampf kann dauern
+                check_end: true # derselbe OK-Knopf steht im Niederlage-Dialog
               - press: esc
         timeout: 30             # so lange dauert Runde 1 höchstens
 

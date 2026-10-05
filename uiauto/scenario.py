@@ -32,7 +32,7 @@ ACTIONS = {
     "repeat": False,        # verschachtelte Schleife: Wert wie repeat der Sequenz, Schritte unter 'steps'
 }
 OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if", "steps", "think",
-           "when", "if_missing"}
+           "when", "if_missing", "check_end"}
 
 
 class ScenarioError(Exception):
@@ -185,6 +185,8 @@ def _parse_step(raw, where, images_dir):
         raise ScenarioError(f"{where}: 'then' gibt es nur bei if_seen und if_counter")
     if action != "if_seen" and "skip_if" in options:
         raise ScenarioError(f"{where}: 'skip_if' gibt es nur bei if_seen")
+    if action not in ("click", "double_click", "right_click", "move", "wait_for", "expect") and "check_end" in options:
+        raise ScenarioError(f"{where}: 'check_end' gibt es nur bei click, move, wait_for und expect")
     return Step(action, value, options)
 
 
