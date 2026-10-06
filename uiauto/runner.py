@@ -1,5 +1,6 @@
 """Führt ein Szenario im Zielfenster aus."""
 import logging
+import random
 import re
 import time
 from dataclasses import dataclass, field
@@ -8,7 +9,7 @@ from datetime import datetime
 import cv2
 import pyautogui
 
-from . import army, config, ocr, report, screen, window
+from . import army, config, negotiation, ocr, report, screen, window
 from .control import Aborted
 from .human import Human, UserInterference, click_point, uniform
 from .matcher import Match, Matcher
@@ -217,6 +218,8 @@ class Runner:
             raise NotSeen(f"Zähler {x}/{total} ({votes}/{len(texts)} Lesungen): '{opts['when']}' nicht erfüllt")
         if a == "replace_damaged":
             return self._replace_damaged(v, opts, human, timeout, threshold, gs)
+        if a == "negotiate":
+            return self._negotiate(v, human, timeout, threshold, gs)
         if a == "first_seen":
             case, m = self._wait_first(v, timeout, threshold, grayscale=gs)
             return f"'{case['if']}' erschienen (Treffer {m.score:.2f})", case["then"]
@@ -405,6 +408,109 @@ class Runner:
             replaced += 1
             log.info("Einheit bei Platz %d ersetzt (Ähnlichkeit %.2f)", slot + 1, best[1])
         raise StepFailed(f"Nach {replaced} Tauschvorgängen immer noch beschädigte Einheiten, breche ab")
+
+    # ------------------------------------------------------------ Verhandlung
+
+    TABLE_H = 500           # so weit unter der Kopfzeile wird nach der aktuellen Vorschlagszeile gesucht
+    MENU_W, MENU_H = 500, 260   # Menü "Ressource auswählen": so weit wird die Leiste seitlich verfolgt, Höhe ab ihr (2 Reihen Güter)
+    MAX_ROUNDS = 10
+    MENU_TRIES = 3          # so oft wird die Taste 1-5 gedrückt, wenn das Menü nicht erscheint
+    MENU_WAIT = 1.5         # s Wartezeit je Versuch (Menü erscheint, Gut wird sichtbar)
+    ROUND_PAUSE = 1.2       # s Pause nach dem Erscheinen der neuen Vorschlagszeile, vor der ersten Taste
+
+    def _negotiate(self, imgs, human, timeout, threshold, gs):
+        """Vorschläge aus der Tabelle übernehmen, Runde für Runde, bis das Erfolgsbild erscheint.
+
+        Je Runde: für jede Person mit Vorschlag ihre Taste 1-5 drücken (öffnet das Menü wie ein
+        Klick auf "Angebot machen"), im Menü das vorgeschlagene Gut wählen, danach "Bezahlen &
+        Verhandeln". Ob es eine weitere Runde gibt, zeigt eine neue (tiefere) Zeile in der Tabelle.
+        Vor der Suche im Menü fährt die Maus kurz auf dessen Überschriftsleiste: Steht sie noch
+        über einem Knopf "Angebot machen", verdeckt dessen Tooltip das Gut.
+        """
+        table = self.matcher.template(imgs["suggestions"])
+        head = f"{imgs['suggestions']} [Kopf]"
+        self.matcher.register(head, table[:negotiation.header_rows(table)])
+
+        def read_row():
+            h = self._wait_image(head, timeout, threshold, grayscale=gs)
+            region = self._region()
+            top = h.y + h.h
+            area = (h.x, top, h.w, max(1, min(region[1] + region[3], top + self.TABLE_H) - top))
+            img = screen.grab(area)
+            return area, img, negotiation.current_icons(img)
+
+        def open_menu(person):
+            """Taste der Person drücken, bis das Menü erscheint (direkt nach einer Runde reagiert
+            das Spiel manchmal noch nicht). Gibt den Treffer der Menü-Überschrift zurück."""
+            for attempt in range(self.MENU_TRIES):
+                human.press(str(person))
+                try:
+                    return self._wait_image(imgs["menu"], self.MENU_WAIT if attempt < self.MENU_TRIES - 1 else timeout,
+                                            threshold, grayscale=gs)
+                except StepFailed:
+                    if attempt == self.MENU_TRIES - 1:
+                        raise StepFailed(f"Menü 'Ressource auswählen' für Person {person} nach "
+                                         f"{self.MENU_TRIES}× Taste {person} nicht erschienen") from None
+                    log.info("Verhandlung: Menü für Person %d nicht erschienen, Taste erneut", person)
+
+        def menu_box(title):
+            """Bereich unter der grauen Menüleiste (x, y, w, h) und die Leiste selbst (für die Maus)."""
+            region = self._region()
+            left = max(region[0], title.x - self.MENU_W)
+            right = min(region[0] + region[2], title.x + title.w + self.MENU_W)
+            row = screen.grab((left, title.y + title.h // 2, right - left, 1))[0]
+            a, b = negotiation.menu_span(row, title.x - left, title.x + title.w - left)
+            menu = (left + a, title.y, b - a, min(self.MENU_H, region[1] + region[3] - title.y))
+            # Maus-Ziel: linkes oder rechtes Ende der Leiste, neben der Überschrift
+            side = random.choice([(left + a + 4, title.x - 4), (title.x + title.w + 4, left + b - 4)])
+            if side[1] - side[0] < 8:
+                side = (title.x, title.x + title.w)
+            bar = Match(side[0], title.y, side[1] - side[0], title.h, 1.0)
+            return menu, bar
+
+        for rnd in range(1, self.MAX_ROUNDS + 1):
+            area, img, icons = read_row()
+            if not icons:
+                raise StepFailed(f"Runde {rnd}: keine Vorschläge in der Tabelle gefunden")
+            for icon in icons:
+                title = open_menu(icon.person)
+                menu, bar = menu_box(title)
+                human.move_to(*click_point(bar, human.cfg), target_size=bar.h)
+                good = icon.crop(img)
+                found = []
+
+                def seen():         # der Tooltip blendet kurz aus, darum mehrmals versuchen
+                    found[:] = [negotiation.find_good(good, screen.grab(menu))]
+                    return found[0][0] >= negotiation.SAME_GOOD
+
+                if not self._poll(seen, self.MENU_WAIT):
+                    raise StepFailed(f"Runde {rnd}: Gut für Person {icon.person} nicht im Menü gefunden "
+                                     f"(beste Übereinstimmung {found[0][0]:.2f}, Schwelle {negotiation.SAME_GOOD:.2f})")
+                score, (gx, gy) = found[0]
+                human.think()
+                human.click(menu[0] + gx, menu[1] + gy, target_size=30)
+                self._wait_image(imgs["menu"], timeout, threshold, present=False, grayscale=gs)
+                log.info("Verhandlung Runde %d: Person %d Gut gewählt (Übereinstimmung %.2f)", rnd, icon.person, score)
+                human.think()
+
+            pay = self._wait_image(imgs["pay"], timeout, threshold, grayscale=gs)
+            human.click(*click_point(pay, human.cfg), target_size=min(pay.w, pay.h))
+            row_y = icons[0].y
+            success = []
+
+            def result():
+                if self.matcher.find(imgs["success"], self._region(), threshold, grayscale=gs):
+                    success.append(True)
+                    return True
+                new = negotiation.current_icons(screen.grab(area))
+                return bool(new) and new[0].y > row_y + negotiation.SAME_ROW
+
+            if not self._poll(result, timeout):
+                raise StepFailed(f"Runde {rnd}: nach dem Bezahlen weder Erfolg noch neue Vorschläge")
+            if success:
+                return f"Erfolg nach {rnd} Runde{'n' if rnd > 1 else ''}"
+            self.control.sleep(self.ROUND_PAUSE)   # das Spiel nimmt Tasten erst kurz nach der neuen Zeile an
+        raise StepFailed(f"Nach {self.MAX_ROUNDS} Runden immer noch kein Erfolg, breche ab")
 
     def _failure_screenshot(self, run_dir, name, mark=None):
         try:

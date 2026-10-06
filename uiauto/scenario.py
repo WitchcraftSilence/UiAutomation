@@ -6,7 +6,7 @@ from pathlib import Path
 import pyautogui
 import yaml
 
-from . import ocr, screen
+from . import negotiation, ocr, screen
 from .config import DEFAULTS
 from .human import offset_px
 
@@ -22,6 +22,7 @@ ACTIONS = {
     "if_seen": True,        # führt 'then' nur aus, wenn das Bild erscheint
     "if_counter": False,    # Leiste (Bild oder Liste) finden, "x/total" rechts lesen; 'then', wenn 'when' zutrifft
     "replace_damaged": False,   # {army: bild, pool: bild}: beschädigte Einheiten gegen gesunde gleicher Art tauschen
+    "negotiate": False,     # {suggestions, menu, pay, success}: Vorschläge der Tabelle übernehmen
     "first_seen": False,    # Liste von {if: bild, then: [...]}: das zuerst erscheinende Bild gewinnt
     "type": False,
     "press": False,
@@ -56,6 +57,8 @@ class Step:
             text = "if_counter: " + " | ".join(self.value)
         elif self.action == "replace_damaged":
             text = f"replace_damaged: {self.value['army']} ← {self.value['pool']}"
+        elif self.action == "negotiate":
+            text = f"negotiate: {self.value['suggestions']}"
         elif self.action == "first_seen":
             text = "first_seen: " + " | ".join(c["if"] for c in self.value)
         else:
@@ -169,6 +172,18 @@ def _parse_step(raw, where, images_dir):
                 raise ScenarioError(f"{where}: if_missing erwartet eine Liste von Schritten")
             options["if_missing"] = [_parse_step(r, f"{where} / if_missing #{j + 1}", images_dir)
                                      for j, r in enumerate(options["if_missing"])]
+    elif action == "negotiate":
+        keys = {"suggestions", "menu", "pay", "success"}
+        if not isinstance(value, dict) or set(value) != keys:
+            raise ScenarioError(f"{where}: negotiate erwartet die Bilder {', '.join(sorted(keys))}")
+        for img in value.values():
+            if not (images_dir / str(img)).exists():
+                raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(img)}")
+        value = {k: str(v) for k, v in value.items()}
+        try:
+            negotiation.header_rows(screen.imread(images_dir / value["suggestions"]))
+        except ValueError as e:
+            raise ScenarioError(f"{where}: {e}") from None
     if action != "replace_damaged" and "if_missing" in options:
         raise ScenarioError(f"{where}: 'if_missing' gibt es nur bei replace_damaged")
     elif action == "repeat":

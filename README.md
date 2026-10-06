@@ -43,6 +43,7 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 | `scroll` | Rasten (negativ = nach unten) | |
 | `wait` | Sekunden oder `[min, max]` | |
 | `click_here` | Anzahl Klicks (`0` = bis Stopp) | schnell dort klicken, wo die Maus steht (etwa 7–9 Klicks/s; die Maus verrutscht nur selten um 1 px; Tempo und Zittern über `rapid_*` in `human`) |
+| `negotiate` | Bilder `suggestions`, `menu`, `pay`, `success` | `timeout`, siehe unten |
 | `end` | optionaler Grund, z. B. `end: Niederlage` (oder nur `- end`) | beendet den Ablauf sofort erfolgreich, meist in `if_seen`/`then` |
 
 Jede Aktion kann zusätzlich eine `note` als Kommentar im Bericht bekommen.
@@ -96,6 +97,19 @@ In `when` erlaubt: `x`, `total`, ganze Zahlen, `+ - * //` und Vergleiche (`>= > 
 ```
 
 Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (letztes Segment nicht grün), sucht das Tool unter den verfügbaren Einheiten eine derselben Art mit vollem Balken. Nur wenn es einen Ersatz gibt, nimmt es die beschädigte Einheit heraus (Klick) und setzt den Ersatz ein (Klick). Nach jedem Klick prüft es, ob sich die Armee wirklich verändert hat. Die Einheitenart wird über das Porträt verglichen und muss nicht vorher aufgenommen werden. Leere Felder (mit `empty`) werden zuerst aufgefüllt, mit einer gesunden Einheit, deren Art schon in der Armee steht.
+
+### Verhandlung (Gildenexpedition)
+
+```yaml
+  - negotiate:
+      suggestions: Vorschlag.png  # Vorschlagstabelle; gesucht wird nur die Kopfzeile "Person 1 … Person 5"
+      menu: Ressource.png         # Überschrift "Ressource auswählen" des Auswahlmenüs
+      pay: Bezahlen.png           # Knopf "Bezahlen & Verhandeln"
+      success: Erfolg.png         # erscheint bei gewonnener Verhandlung; nur den Schriftzug aufnehmen, ohne Hintergrund
+    timeout: 5
+```
+
+Je Runde liest das Tool die aktuelle (unterste) Zeile der Vorschlagstabelle. Sie ist die einzige mit kräftigen Güter-Symbolen auf schwarzem Kreis, ältere Zeilen sind blass. Für jede Person mit Vorschlag drückt es deren Taste 1–5 (wirkt wie ein Klick auf „Angebot machen“), sucht das vorgeschlagene Gut im Menü und klickt darauf. Bevor es das Gut sucht, fährt die Maus kurz auf die Überschriftsleiste des Menüs, denn über einem Knopf „Angebot machen“ würde dessen Tooltip das Gut verdecken. Erscheint das Menü nicht, drückt es die Taste bis zu dreimal. Danach klickt es auf „Bezahlen & Verhandeln“. Erscheint dann das Erfolgsbild, endet der Schritt. Erscheint stattdessen eine neue Zeile, folgt die nächste Runde, höchstens 10 Runden. Die Güter werden zur Laufzeit zwischen Tabelle und Menü verglichen und müssen nicht einzeln aufgenommen werden. Das Erfolgsfenster schließen die Schritte danach, siehe `scenarios/Verhandlung.yaml`.
 
 ### Einstellungen im Steuerfenster
 
