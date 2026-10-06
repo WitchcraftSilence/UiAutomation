@@ -20,9 +20,17 @@ steps:
         if_missing:             # kein gesunder Ersatz: Sequenz beenden
           - end: kein gesunder Ersatz
       - press: b                # Auto-Kampf
-      - wait_for: QI OK.png
-        timeout: 1             # Kampf kann dauern
-      - press: esc
+      - first_seen:             # nach dem Kampf kommt entweder das Ergebnis oder die zweite Welle
+          - if: QI OK.png
+            then:
+              - press: esc
+          - if: QI Zweite Welle B.png
+            then:
+              - press: b        # Auto-Kampf für die zweite Welle
+              - wait_for: QI OK.png
+                timeout: 5      # Kampf kann dauern
+              - press: esc
+        timeout: 3              # so lange dauert der erste Kampf höchstens
       - repeat:                 # Belohnung schließen; Esc wiederholen, bis sie wirklich weg ist
           while: QI Belohnung ESC.png
           timeout: 1            # so lange wird nach der Belohnung gesucht
