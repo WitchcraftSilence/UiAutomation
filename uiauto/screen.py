@@ -32,13 +32,21 @@ def virtual_screen():
     return mon["left"], mon["top"], mon["width"], mon["height"]
 
 
-def imread(path):
+def imread(path, alpha=False):
+    """Bild als BGR. alpha=True: (bild, maske), maske = nicht transparente Pixel oder None ohne Alphakanal."""
     # cv2.imread kann unter Windows keine Pfade mit Umlauten
     data = np.fromfile(str(path), dtype=np.uint8)
-    img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    img = cv2.imdecode(data, cv2.IMREAD_UNCHANGED if alpha else cv2.IMREAD_COLOR)
     if img is None:
         raise FileNotFoundError(f"Bild nicht lesbar: {path}")
-    return img
+    if not alpha:
+        return img
+    if img.ndim == 2:
+        return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR), None
+    if img.shape[2] == 4:
+        mask = (img[:, :, 3] > 0).astype(np.uint8) * 255
+        return img[:, :, :3].copy(), (mask if mask.min() == 0 else None)
+    return img, None
 
 
 def imwrite(path, img):

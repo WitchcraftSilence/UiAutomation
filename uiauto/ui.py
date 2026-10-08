@@ -105,7 +105,6 @@ class ControlWindow:
         """Auswahlknöpfe für eine Einstellung unter der Sequenz; die Wahl gilt auch für den Hotkey."""
         row = ttk.Frame(self.list_frame)
         row.pack(fill="x", padx=(12, 0), pady=(0, 3))
-        ttk.Label(row, text=f"{name}:", style="Hotkey.TLabel").pack(side="left")
         current = self.app.params_for(scenario)[name]
         var = tk.StringVar(value=str(current))
         by_text = {str(o): o for o in spec["options"]}
@@ -115,7 +114,7 @@ class ControlWindow:
         var.trace_add("write", chosen)
         self._param_vars.append(var)        # Referenz halten, sonst räumt Python die Variable weg
         for o in spec["options"]:
-            ttk.Radiobutton(row, text=str(o), value=str(o), variable=var).pack(side="left", padx=(6, 0))
+            ttk.Radiobutton(row, text=str(o), value=str(o), variable=var).pack(side="left", padx=(0, 6))
 
     def refresh(self):
         """Status und aktive/ausgegraute Schaltflächen an den Zustand anpassen."""

@@ -127,9 +127,10 @@ class Human:
         if self._expected is None:
             return
         x, y = pyautogui.position()
-        if math.hypot(x - self._expected[0], y - self._expected[1]) > self.cfg["interference_tolerance"]:
-            self._expected = None
-            raise UserInterference()
+        dist = math.hypot(x - self._expected[0], y - self._expected[1])
+        if dist > self.cfg["interference_tolerance"]:
+            expected, self._expected = self._expected, None
+            raise UserInterference(f"Maus bei ({x}, {y}) statt {tuple(expected)}, {dist:.0f} px daneben")
 
     def think(self, override=None):
         """Denkpause vor einem Schritt; override = Sekunden oder [min, max] nur für diesen Schritt."""
@@ -186,6 +187,20 @@ class Human:
         if random.random() < self.cfg["rapid_pause_chance"]:
             gap += uniform(self.cfg["rapid_pause"])
         self.control.sleep(gap)
+
+    def mouse_down(self):
+        """Linke Taste an der aktuellen Stelle drücken und halten (nach kurzem Verweilen)."""
+        self.control.sleep(uniform(self.cfg["hover_time"]))
+        self._check_interference()
+        pyautogui.mouseDown(_pause=False)
+
+    def mouse_up(self):
+        """Linke Taste loslassen, auch nach Not-Aus (Maus in der Ecke), damit sie nicht gedrückt bleibt."""
+        failsafe, pyautogui.FAILSAFE = pyautogui.FAILSAFE, False
+        try:
+            pyautogui.mouseUp(_pause=False)
+        finally:
+            pyautogui.FAILSAFE = failsafe
 
     def click(self, x, y, button="left", clicks=1, target_size=20):
         self.move_to(x, y, target_size)

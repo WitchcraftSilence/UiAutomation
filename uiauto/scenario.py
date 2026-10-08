@@ -16,6 +16,7 @@ ACTIONS = {
     "double_click": True,
     "right_click": True,
     "move": True,
+    "drag_over": True,      # alle Treffer mit gedrückter linker Maustaste abfahren, bis keiner mehr zu sehen ist
     "wait_for": True,
     "expect": True,
     "expect_not": True,
@@ -59,6 +60,8 @@ class Step:
             text = f"replace_damaged: {self.value['army']} ← {self.value['pool']}"
         elif self.action == "negotiate":
             text = f"negotiate: {self.value['suggestions']}"
+        elif self.action == "drag_over":
+            text = "drag_over: " + " | ".join(self.value)
         elif self.action == "first_seen":
             text = "first_seen: " + " | ".join(c["if"] for c in self.value)
         else:
@@ -99,7 +102,12 @@ def _parse_step(raw, where, images_dir):
     value = raw[action]
     options = {k: v for k, v in raw.items() if k in OPTIONS}
 
-    if ACTIONS[action] and not (images_dir / str(value)).exists():
+    if action == "drag_over":   # ein Bild oder eine Liste von Varianten desselben Symbols
+        value = [str(v) for v in value] if isinstance(value, list) else [str(value)]
+        for img in value:
+            if not (images_dir / img).exists():
+                raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
+    elif ACTIONS[action] and not (images_dir / str(value)).exists():
         raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(value)}")
     if action == "press":
         for key in str(value).lower().split("+"):
@@ -262,8 +270,9 @@ def _parse_repeat(raw, where, images_dir):
         if not (images_dir / img).exists():
             raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
     max_rounds = raw.get("max", 0)
-    if not isinstance(max_rounds, int) or max_rounds < 0:
-        raise ScenarioError(f"{where}: max erwartet eine ganze Zahl >= 0 (0 = unbegrenzt)")
+    if not _is_param_ref(max_rounds) and (not isinstance(max_rounds, int) or isinstance(max_rounds, bool)
+                                          or max_rounds < 0):
+        raise ScenarioError(f"{where}: max erwartet eine ganze Zahl >= 0 (0 = unbegrenzt) oder $einstellung")
     if not isinstance(raw.get("grayscale", True), bool):
         raise ScenarioError(f"{where}: grayscale erwartet true/false")
     return {"while": images, "until": until, "grayscale": raw.get("grayscale"),
@@ -290,16 +299,24 @@ def _parse_params(raw, where):
     return params
 
 
+def _check_count_ref(ref, params, where, what):
+    """$name einer Anzahl (click_here, repeat/max): muss definiert sein und nur ganze Zahlen >= 0 enthalten."""
+    name = ref[1:]
+    if name not in params:
+        raise ScenarioError(f"{where}: {ref} ist unter params nicht definiert")
+    if not all(isinstance(o, int) and not isinstance(o, bool) and o >= 0 for o in params[name]["options"]):
+        raise ScenarioError(f"{where}: params/{name} muss für {what} ganze Zahlen >= 0 enthalten")
+
+
 def _check_param_refs(steps, params, where):
-    """Jedes $name muss in params stehen; bei click_here müssen alle Möglichkeiten passende Zahlen sein."""
+    """Jedes $name muss in params stehen; bei click_here und repeat/max müssen alle Möglichkeiten passende Zahlen sein."""
     for st in steps:
-        if _is_param_ref(st.value):
-            name = st.value[1:]
-            if name not in params:
-                raise ScenarioError(f"{where}: {st.value} ist unter params nicht definiert")
-            if st.action == "click_here" and not all(
-                    isinstance(o, int) and not isinstance(o, bool) and o >= 0 for o in params[name]["options"]):
-                raise ScenarioError(f"{where}: params/{name} muss für click_here ganze Zahlen >= 0 enthalten")
+        if st.action == "repeat" and _is_param_ref(st.value["max"]):
+            _check_count_ref(st.value["max"], params, where, "repeat/max")
+        if st.action == "click_here" and _is_param_ref(st.value):
+            _check_count_ref(st.value, params, where, "click_here")
+        elif _is_param_ref(st.value) and st.value[1:] not in params:
+            raise ScenarioError(f"{where}: {st.value} ist unter params nicht definiert")
         for key in ("then", "if_missing", "steps"):
             if isinstance(st.options.get(key), list):
                 _check_param_refs(st.options[key], params, where)
@@ -333,6 +350,8 @@ def load(path, images_dir):
         params=_parse_params(data.get("params"), f"{path.name} / params"),
     )
     _check_param_refs(scenario.precondition + scenario.steps, scenario.params, path.name)
+    if scenario.repeat and _is_param_ref(scenario.repeat["max"]):
+        _check_count_ref(scenario.repeat["max"], scenario.params, path.name, "repeat/max")
     if not scenario.steps:
         raise ScenarioError(f"{path.name}: keine Schritte (steps) definiert")
     return scenario

@@ -1,0 +1,41 @@
+name: QI Güter
+hotkey: ctrl+alt+0
+
+# Güter produzieren: Bild 1 → rechter Knopf "Produzieren" in Bild 3a → Gut einsammeln, so oft wie im Steuerfenster gewählt
+human:
+  think_time: [0.05, 0.12]    # eingeübter Ablauf, kaum Nachdenken
+  move_speed: 1.2
+  hover_time: [0.1, 0.3]
+
+params:
+  durchlaeufe:                  # im Steuerfenster als Auswahl unter der Sequenz; gilt auch für den Hotkey
+    options: [2, 4, 6, 9, 12, 20]
+    default: 2
+
+repeat:
+  while:                             # vor jeder Runde muss Bild 1 oder sein Tooltip zu sehen sein
+    - QI Produziere Güter 1 Maske.png      # nur Mond und "zz", Hintergrund transparent
+    - QI Güter Produzieren 1a Tooltip.png   # steht die Maus schon darauf, verdeckt der Tooltip Bild 1
+  max: $durchlaeufe                  # nach so vielen Runden ist Schluss
+  threshold: 0.7                     # Symbol 0,78-0,87 je nach Welt, ohne Symbol höchstens 0,25
+
+steps:
+  - first_seen:                     # Tooltip zuerst: steht die Maus auf dem Gebäude, verdeckt er Bild 1 gleich
+      - if: QI Güter Produzieren 1a Tooltip.png
+        then:
+          - click_here: 1            # Maus steht schon richtig: einfach dort klicken
+      - if: QI Produziere Güter 1 Maske.png
+        then:
+          - click: QI Produziere Güter 1 Maske.png
+            offset: [0, 1.5w]
+            think: 0                 # sofort, bevor ein Tooltip Bild 1 verdecken kann
+            threshold: 0.7
+    threshold: 0.7
+  - click: QI Güter Produzieren 3a.png   # Bild 1 öffnet die vier Knöpfe "Produzieren"
+    offset: [314, 0]                     # Mitte des Knopfs ganz rechts
+    note: rechter Knopf
+  - click: QI Ernte Gut.png             # erscheint ca. 1 s nach "Produzieren"; einsammeln, dann nächste Runde
+    timeout: 5
+    offset: [0, 1.5w]                     # 1,5 Bildbreiten unterhalb klicken, sonst überlagert der Tooltip
+    note: unter dem Gut
+  - wait: [0.8, 1.0]                # Maus steht jetzt auf dem Gebäude: warten, bis dessen Tooltip sicher da ist

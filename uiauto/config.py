@@ -48,7 +48,7 @@ DEFAULTS = {
         "typing_pause_chance": 0.05,    # gelegentliches kurzes Stocken beim Tippen
         "typing_pause": [0.25, 0.8],
         "scroll_delay": [0.04, 0.14],   # Abstand zwischen Mausrad-Rasten
-        "interference_tolerance": 10,   # px; weicht die Maus mehr ab, hat der Benutzer sie bewegt
+        "interference_tolerance": 30,   # px; weicht die Maus mehr ab, hat der Benutzer sie bewegt (10 war zu knapp: 11 px Drift ohne Berührung)
         # click_here: schnelles Klicken an der Mausposition (schneller Mensch: etwa 7-9 Klicks/s)
         "rapid_click_hold": [0.04, 0.08],   # Maustaste gedrückt
         "rapid_click_gap": [0.05, 0.10],    # Pause bis zum nächsten Klick

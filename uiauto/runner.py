@@ -199,6 +199,8 @@ class Runner:
         if a in ("wait_for", "expect"):
             m = self._wait_image(v, timeout, threshold, grayscale=gs, check_end=bool(opts.get("check_end")))
             return f"Treffer {m.score:.2f} bei ({m.x}, {m.y})"
+        if a == "drag_over":
+            return self._drag_over(v, human, timeout, threshold, gs)
         if a == "if_seen":
             try:
                 m = self._wait_image(v, timeout, threshold, grayscale=gs, skip_if=opts.get("skip_if"))
@@ -252,6 +254,66 @@ class Runner:
             self.control.sleep(seconds)
             return f"{seconds:.2f} s"
         raise StepFailed(f"Unbekannte Aktion {a}")
+
+    DRAG_PASSES = 5         # so oft werden übrig gebliebene Treffer höchstens erneut abgefahren
+    DRAG_SETTLE = 0.4       # s nach einem Durchgang, bis eingesammelte Treffer verschwunden sind
+
+    def _find_all_variants(self, names, region, threshold, shot, grayscale):
+        """Treffer aller Bildvarianten; liegt die Mitte eines Treffers in einem besseren, zählt er nicht."""
+        found = []
+        for m in sorted((m for n in names for m in self.matcher.find_all(n, region, threshold, shot, grayscale)),
+                        key=lambda m: -m.score):
+            cx, cy = m.center
+            if not any(k.x <= cx <= k.x + k.w and k.y <= cy <= k.y + k.h for k in found):
+                found.append(m)
+        return found
+
+    def _drag_over(self, names, human, timeout, threshold, grayscale):
+        """Alle Treffer der Bilder (Varianten desselben Symbols) mit gedrückter linker Maustaste abfahren,
+        bis keiner mehr zu sehen ist.
+
+        Gedrückt wird beim ersten Treffer, weiter geht es jeweils zum nächstgelegenen. Nach jedem
+        Durchgang wird neu gesucht, die Taste bleibt dabei gedrückt.
+        """
+        name = " / ".join(names)
+        region = self._region()
+        end = time.perf_counter() + timeout
+        while True:
+            self.control.check()
+            shot = screen.grab(region)
+            found = self._find_all_variants(names, region, threshold, shot, grayscale)
+            if found:
+                break
+            if time.perf_counter() >= end:
+                best = max(self.matcher.best_score(n, region, shot=shot, grayscale=grayscale) for n in names)
+                raise StepFailed(f"Bild '{name}' nicht gefunden nach {timeout:.1f} s "
+                                 f"(beste Übereinstimmung {best:.2f}, Schwelle {threshold:.2f})")
+            self.control.sleep(self.matching["poll_interval"])
+            region = self._region()
+
+        first_count, passes, pressed = len(found), 0, False
+        try:
+            while found:
+                if passes == self.DRAG_PASSES:
+                    m = found[0]
+                    raise StepFailed(f"Nach {passes} Durchgängen noch {len(found)}× '{name}' sichtbar",
+                                     (m.x, m.y, m.w, m.h))
+                passes += 1
+                pos = pyautogui.position()
+                while found:    # immer zum nächstgelegenen Treffer
+                    m = min(found, key=lambda t: (t.center[0] - pos[0]) ** 2 + (t.center[1] - pos[1]) ** 2)
+                    found.remove(m)
+                    pos = click_point(m, human.cfg)
+                    human.move_to(*pos, target_size=min(m.w, m.h))
+                    if not pressed:
+                        human.mouse_down()
+                        pressed = True
+                self.control.sleep(self.DRAG_SETTLE)
+                found = self._find_all_variants(names, region, threshold, screen.grab(region), grayscale)
+        finally:
+            if pressed:
+                human.mouse_up()
+        return f"{first_count} Treffer abgefahren in {passes} {'Durchgang' if passes == 1 else 'Durchgängen'}"
 
     def _find_bar(self, names, timeout, threshold):
         """Leiste (Fortschrittsbalken) finden: Rahmen und Symbolfeld vergleichen, dann prüfen,
@@ -316,6 +378,18 @@ class Runner:
         self.matcher.register(anchor, tpl[:rows])
         m = self._wait_image(anchor, timeout, threshold, grayscale=gs)
         return m.x, m.y, tpl.shape[1], tpl.shape[0]
+
+    def _settled_grab(self, region, timeout=1.5, gap=0.15):
+        """Screenshot, sobald sich der Bereich zwischen zwei Aufnahmen nicht mehr ändert (Animationen)."""
+        prev = screen.grab(region)
+        end = time.perf_counter() + timeout
+        while time.perf_counter() < end:
+            self.control.sleep(gap)
+            cur = screen.grab(region)
+            if cv2.absdiff(prev, cur).max() < 30:
+                return cur
+            prev = cur
+        return prev
 
     def _poll(self, condition, timeout=3.0):
         end = time.perf_counter() + timeout
@@ -394,10 +468,12 @@ class Runner:
             if self._best_replacement(screen.grab(reg_p), portrait) is None:
                 return self._missing(opts, f"kein gesunder Ersatz für die Einheit bei Platz {slot + 1} ({summary()})")
 
+            damaged = st.count("damaged")
             self._click_tile(human, reg_a, tile)                     # herausnehmen
             if not self._poll(lambda: n_empty() == 1):
                 raise StepFailed(f"Einheit bei Platz {slot + 1} wurde nicht herausgenommen")
-            best = self._best_replacement(screen.grab(reg_p), portrait)   # Pool hat sich verändert
+            # Pool hat sich verändert (die herausgenommene Einheit kommt dazu): erst wählen, wenn er ruhig ist
+            best = self._best_replacement(self._settled_grab(reg_p), portrait)
             if best is None:
                 return self._missing(opts, f"Ersatz für Platz {slot + 1} nach dem Herausnehmen nicht mehr gefunden "
                                            f"({summary()})")
@@ -407,6 +483,12 @@ class Runner:
                 raise StepFailed("Ersatz-Einheit wurde nicht in die Armee übernommen")
             replaced += 1
             log.info("Einheit bei Platz %d ersetzt (Ähnlichkeit %.2f)", slot + 1, best[1])
+            after = states(self._settled_grab(reg_a))
+            if after.count("damaged") >= damaged:   # Ersatz war selbst verwundet: nicht endlos weitertauschen
+                bad = [i + 1 for i, s in enumerate(after) if s == "damaged"]
+                raise StepFailed(f"Nach dem Ersetzen von Platz {slot + 1} sind immer noch {len(bad)} Einheiten "
+                                 f"beschädigt (Plätze {', '.join(map(str, bad))}); der Ersatz war wohl selbst "
+                                 f"verwundet, breche ab ({summary()})", reg_a)
         raise StepFailed(f"Nach {replaced} Tauschvorgängen immer noch beschädigte Einheiten, breche ab")
 
     # ------------------------------------------------------------ Verhandlung
@@ -549,8 +631,8 @@ class Runner:
                     out = self._execute(step, human, default_timeout)
                     sr.detail, sr.then = out if isinstance(out, tuple) else (out, None)
                     break
-                except UserInterference:
-                    log.info("Mausbewegung durch Benutzer erkannt, pausiere")
+                except UserInterference as e:
+                    log.info("Mausbewegung durch Benutzer erkannt (%s, Schritt %s %s), pausiere", e, idx, step.action)
                     self.control.pause("Maus wurde bewegt. Weiter mit Pause-Hotkey oder Tray-Menü.")
                     self.control.check()   # blockiert bis Weiter oder Stopp
             sr.status = "ok"
@@ -617,9 +699,12 @@ class Runner:
         token = object()
         if rep["until"]:
             self._ends.append((token, dict(name=rep["until"], threshold=threshold, grayscale=rep["grayscale"])))
+        max_rounds = rep["max"]
+        if isinstance(max_rounds, str):
+            max_rounds = self.params[max_rounds[1:]]    # gewählte Einstellung, z. B. $durchlaeufe
         rounds = 0
         try:
-            while not rep["max"] or rounds < rep["max"]:
+            while not max_rounds or rounds < max_rounds:
                 round_phase = f"{phase} › Runde {rounds + 1}" if nested and phase != "Ablauf" else f"Runde {rounds + 1}"
                 sr = StepResult(round_phase, prefix or 0, "while: " + " | ".join(rep["while"]))
                 result.steps.append(sr)

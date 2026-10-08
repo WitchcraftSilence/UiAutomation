@@ -1,0 +1,20 @@
+name: QI Ernte
+hotkey: ctrl+alt+9
+
+# Fertige Güter einsammeln: beim ersten Gut die linke Maustaste drücken und mit gedrückter
+# Taste von Gut zu Gut fahren, bis keines mehr zu sehen ist
+human:
+  think_time: [0.05, 0.12]    # eingeübter Ablauf, kaum Nachdenken
+  move_speed: 1.2
+  hover_time: [0.1, 0.3]
+
+# Sind keine Güter mehr zu sehen, bis zu 2 s auf neue warten und dann noch einmal einsammeln;
+# kommt in den 2 s keines, ist die Sequenz fertig
+repeat:
+  while: QI Ernte Symbol.png
+  timeout: 2
+  threshold: 0.8
+
+steps:
+  - drag_over: QI Ernte Symbol.png
+    threshold: 0.8              # Trainingsbild: alle 11 Güter 0,84-1,00, bester Fehltreffer 0,68

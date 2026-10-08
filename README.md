@@ -36,6 +36,7 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 | Aktion | Wert | Optionen |
 |---|---|---|
 | `click`, `double_click`, `right_click`, `move` | Bild | `offset: [dx, dy]`, `timeout`, `threshold`, `grayscale`, `check_end` |
+| `drag_over` | Bild oder Liste von Varianten | alle Treffer suchen, beim ersten die linke Maustaste drücken und mit gedrückter Taste von Treffer zu Treffer (jeweils zum nächsten) fahren, bis keiner mehr zu sehen ist; `timeout`, `threshold`, `grayscale` |
 | `wait_for`, `expect` | Bild | `timeout`, `threshold`, `grayscale`, `check_end` |
 | `expect_not` | Bild (wartet, bis es verschwunden ist) | `timeout`, `threshold`, `grayscale` |
 | `type` | Text (Umlaute möglich) | |
@@ -55,6 +56,8 @@ Vor jedem Schritt macht das Tool eine Denkpause (`think_time`). Mit `think` beko
   - press: b
     think: [0.05, 0.12]   # Sekunden oder [min, max]; 0 = keine Denkpause
 ```
+
+Hat ein Referenzbild transparente Pixel (PNG mit Alphakanal), zählen beim Vergleich nur die übrigen. So lässt sich ein Symbol ohne den Hintergrund suchen, der je nach Stelle im Spiel anders aussieht, z. B. `QI Produziere Güter 1 Maske.png`. Die Treffer liegen dann niedriger, eine Schwelle um `0.7` ist üblich. Die Suche über das ganze Fenster dauert etwa viermal so lange.
 
 `offset` wird von der Bildmitte aus gemessen, entweder in Pixeln (`[150, 0]`) oder in Vielfachen der Bildgröße: `[0, 1.5h]` heißt 1,5 × Bildhöhe nach unten, `[-0.5w, 0]` eine halbe Bildbreite nach links. Negative Werte zeigen nach links bzw. oben.
 
@@ -96,7 +99,7 @@ In `when` erlaubt: `x`, `total`, ganze Zahlen, `+ - * //` und Vergleiche (`>= > 
       - end: kein Ersatz
 ```
 
-Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (letztes Segment nicht grün), sucht das Tool unter den verfügbaren Einheiten eine derselben Art mit vollem Balken. Nur wenn es einen Ersatz gibt, nimmt es die beschädigte Einheit heraus (Klick) und setzt den Ersatz ein (Klick). Nach jedem Klick prüft es, ob sich die Armee wirklich verändert hat. Die Einheitenart wird über das Porträt verglichen und muss nicht vorher aufgenommen werden. Leere Felder (mit `empty`) werden zuerst aufgefüllt, mit einer gesunden Einheit, deren Art schon in der Armee steht.
+Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (mindestens ein rotes Segment), sucht das Tool unter den verfügbaren Einheiten eine derselben Art mit vollem Balken. Nur wenn es einen Ersatz gibt, nimmt es die beschädigte Einheit heraus (Klick) und setzt den Ersatz ein (Klick). Nach jedem Klick prüft es, ob sich die Armee wirklich verändert hat. Ist ein Platz nach dem Ersetzen immer noch beschädigt, bricht es mit Fehler ab, statt endlos zu tauschen. Die Einheitenart wird über das Porträt verglichen und muss nicht vorher aufgenommen werden. Leere Felder (mit `empty`) werden zuerst aufgefüllt, mit einer gesunden Einheit, deren Art schon in der Armee steht.
 
 ### Verhandlung (Gildenexpedition)
 
@@ -172,7 +175,7 @@ repeat:
                     # oder mehrere: while: [a.png, b.png], dann reicht eines davon
   until: ende.png   # optional: erscheint dieses Bild, endet der Ablauf sofort erfolgreich
   timeout: 5        # so lange wird vor jeder Runde darauf gewartet (Standard 5 s)
-  max: 50           # optional, 0 = unbegrenzt
+  max: 50           # optional, 0 = unbegrenzt; auch $einstellung aus params
   grayscale: false  # optional, siehe unten
   threshold: 0.9    # optional
 ```

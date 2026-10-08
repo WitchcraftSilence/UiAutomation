@@ -1,9 +1,9 @@
 """Einheiten-Kacheln mit Lebensbalken erkennen (Aktion replace_damaged).
 
 Eine Kachel ist ein Porträt mit einem Lebensbalken darunter. Der Balken besteht aus
-Segmenten: grün = Leben, dunkel bzw. rot = verloren. Der Balken leert sich von rechts,
-darum heißt "voll": das letzte Segment ganz rechts ist grün. (Die Trennstriche zwischen den
-Segmenten sind dunkel, ein Anteil Grün über die ganze Breite taugt deshalb nicht.)
+Segmenten: grün = Leben, rot = verloren. "Voll" heißt: kein rotes Segment im Balken. (Früher
+wurde nur geprüft, ob die letzten Pixel rechts grün sind. Das hing an der genauen Lage des
+Balkens, und schon 2 px Versatz machten aus einer gesunden Einheit eine beschädigte.)
 """
 from dataclasses import dataclass
 
@@ -12,8 +12,7 @@ import numpy as np
 
 PORTRAIT_H = 60         # Höhe des Porträts über dem Balken (px)
 BAR_GAP = 2             # Abstand zwischen Porträt und Balken
-LAST_SEGMENT_PX = 7     # so breit wird ganz rechts im Balken geprüft
-LAST_SEGMENT_GREEN = 0.45  # Anteil grün dort, ab dem der Balken als voll gilt (voll ≈ 0.6–0.85, leer ≤ 0.3)
+RED_MIN = 6             # so viele rote Pixel im Balken heißen beschädigt (voll: 0, ein rotes Segment: ≥ 14)
 SAME_UNIT = 0.85        # Mindest-Ähnlichkeit zweier Porträts für "gleiche Einheit"
 
 
@@ -23,7 +22,7 @@ class Tile:
     bar_y: int
     width: int
     full: bool
-    coverage: float     # Anteil grün im letzten Segment
+    red: int            # rote Pixel im Balken
 
     @property
     def portrait_box(self):
@@ -37,9 +36,30 @@ def _green(img):
     return (g > 120) & (g > r + 25) & (g > b + 40)
 
 
+def _red(img):
+    b, g, r = (img[..., i].astype(int) for i in range(3))
+    return (r > 110) & (r > g + 50) & (r > b + 50)
+
+
+def _bar(img, x, y, width):
+    """Balkenbereich mit etwas Rand, damit wenige Pixel Versatz nichts ausmachen."""
+    return img[max(0, y - 1):y + 7, max(0, x - 2):x + width + 2]
+
+
+def red_pixels(img, x, y, width):
+    return int(_red(_bar(img, x, y, width)).sum())
+
+
 def find_tiles(img):
-    """Alle Kacheln mit Lebensbalken im Bild, sortiert nach Zeile und Spalte."""
+    """Alle Kacheln mit Lebensbalken im Bild, sortiert nach Zeile und Spalte.
+
+    Ein Balken beginnt grün und wird nach rechts über anschließende rote Segmente verlängert. Nur mit
+    Grün wäre die Breite zu kurz, wenn fast alle Einheiten verwundet sind (Median ohne das rote Ende),
+    und das letzte Segment fiele heraus. Rote Stücke allein zählen nicht, sonst würde rote Kleidung
+    in den Porträts zu Balken.
+    """
     green = _green(img)
+    colored = green | _red(img)
     _, _, stats, _ = cv2.connectedComponentsWithStats(green.astype(np.uint8))
     parts = sorted((s for s in stats[1:] if 3 <= s[3] <= 9 and s[2] >= 3), key=lambda s: (s[1], s[0]))
 
@@ -53,6 +73,10 @@ def find_tiles(img):
                 break
         else:
             bars.append({"x": x, "y": y, "end": x + w, "h": h})
+    for bar in bars:                        # über rote Segmente verlängern (Lücken zwischen Segmenten ≤ 3 px)
+        row = colored[min(bar["y"] + bar["h"] // 2, img.shape[0] - 1)]
+        while bar["end"] < len(row) and row[bar["end"]:bar["end"] + 4].any() and bar["end"] - bar["x"] < 70:
+            bar["end"] += 1
 
     widths = [b["end"] - b["x"] for b in bars if b["end"] - b["x"] >= 45]
     width = int(np.median(widths)) if widths else 54
@@ -60,9 +84,8 @@ def find_tiles(img):
     for bar in bars:
         if bar["end"] - bar["x"] < 12 or bar["y"] < PORTRAIT_H // 2:
             continue                        # zu kurz für einen Balken bzw. kein Platz für ein Porträt
-        last = green[bar["y"]:bar["y"] + 6, bar["x"] + width - LAST_SEGMENT_PX:bar["x"] + width]
-        coverage = float(last.mean()) if last.size else 0.0
-        tiles.append(Tile(int(bar["x"]), int(bar["y"]), width, coverage >= LAST_SEGMENT_GREEN, coverage))
+        red = red_pixels(img, bar["x"], bar["y"], width)
+        tiles.append(Tile(int(bar["x"]), int(bar["y"]), width, red < RED_MIN, red))
     tiles.sort(key=lambda t: (t.bar_y // 20, t.x))
     return tiles
 
@@ -84,11 +107,12 @@ def slot_state(img, tile, empty_tpl=None):
         area = img[max(0, y):y + h, max(0, x):x + w]
         if find_empty(area, empty_tpl):
             return "empty"
-    green = _green(img[tile.bar_y:tile.bar_y + 6, tile.x:tile.x + tile.width])
-    if not green.any():
+    red = red_pixels(img, tile.x, tile.bar_y, tile.width)
+    if red >= RED_MIN:
+        return "damaged"                    # auch ganz roter Balken (kein Grün mehr)
+    if not _green(_bar(img, tile.x, tile.bar_y, tile.width)).any():
         return "empty"                      # kein Balken, also keine Einheit
-    last = green[:, -LAST_SEGMENT_PX:]
-    return "full" if last.mean() >= LAST_SEGMENT_GREEN else "damaged"
+    return "full"
 
 
 def find_empty(img, empty_tpl, threshold=0.85):

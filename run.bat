@@ -1,1 +1,4 @@
-call .venv\Scripts\pythonw.exe run.pyw
+@echo off
+cd /d "%~dp0"
+start "" .venv\Scripts\pythonw.exe run.pyw
+exit
