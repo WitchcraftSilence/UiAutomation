@@ -214,7 +214,7 @@ def _parse_step(raw, where, images_dir):
 
 
 def _parse_cases(raw, where, images_dir):
-    """first_seen: [{if: bild, then: [schritte], grayscale: bool?}, ...]"""
+    """first_seen: [{if: bild, then: [schritte], grayscale: bool?, threshold: zahl?}, ...]"""
     if not isinstance(raw, list) or len(raw) < 2:
         raise ScenarioError(f"{where}: first_seen erwartet mindestens zwei Einträge '- if: bild.png' mit 'then:'")
     cases = []
@@ -222,7 +222,7 @@ def _parse_cases(raw, where, images_dir):
         w = f"{where} / Fall #{k + 1}"
         if not isinstance(case, dict) or "if" not in case:
             raise ScenarioError(f"{w}: erwartet 'if: bild.png' und 'then:'")
-        unknown = set(case) - {"if", "then", "grayscale"}
+        unknown = set(case) - {"if", "then", "grayscale", "threshold"}
         if unknown:
             raise ScenarioError(f"{w}: unbekannt: {', '.join(sorted(unknown))}")
         image = str(case["if"])
@@ -230,10 +230,14 @@ def _parse_cases(raw, where, images_dir):
             raise ScenarioError(f"{w}: Bild nicht gefunden: {images_dir / image}")
         if not isinstance(case.get("grayscale", True), bool):
             raise ScenarioError(f"{w}: grayscale erwartet true/false")
+        threshold = case.get("threshold")
+        if threshold is not None and (isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+                                      or not 0 < threshold <= 1):
+            raise ScenarioError(f"{w}: threshold erwartet eine Zahl zwischen 0 und 1")
         then = case.get("then") or []
         if not isinstance(then, list):
             raise ScenarioError(f"{w}: then erwartet eine Liste von Schritten")
-        cases.append({"if": image, "grayscale": case.get("grayscale"),
+        cases.append({"if": image, "grayscale": case.get("grayscale"), "threshold": threshold,
                       "then": [_parse_step(r, f"{w} / then #{j + 1}", images_dir) for j, r in enumerate(then)]})
     return cases
 

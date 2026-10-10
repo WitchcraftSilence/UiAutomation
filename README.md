@@ -160,6 +160,7 @@ Unterschiede zum `repeat` der ganzen Sequenz:
           - press: d
       - if: variante_b.png
         grayscale: false   # optional pro Bild
+        threshold: 0.95    # optional pro Bild, sonst gilt die Schwelle des Schritts
         then:
           - press: a
     timeout: 10

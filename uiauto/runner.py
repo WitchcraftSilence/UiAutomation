@@ -154,7 +154,10 @@ class Runner:
             region = self._region()
 
     def _wait_first(self, cases, timeout, threshold, grayscale=None):
-        """Wartet, bis eines der Bilder erscheint. Gibt (fall, treffer) zurück; bei Gleichstand gewinnt der erste Fall."""
+        """Wartet, bis eines der Bilder erscheint. Gibt (fall, treffer) zurück; bei Gleichstand gewinnt der erste Fall.
+
+        Ein Fall kann eine eigene Schwelle haben (case["threshold"]), sonst gilt threshold.
+        """
         region = self._region()
         end = time.perf_counter() + timeout
         while True:
@@ -163,7 +166,7 @@ class Runner:
             self._check_ends(region, shot)
             for case in cases:
                 gs = grayscale if case["grayscale"] is None else case["grayscale"]
-                m = self.matcher.find(case["if"], region, threshold, shot=shot, grayscale=gs)
+                m = self.matcher.find(case["if"], region, case.get("threshold") or threshold, shot=shot, grayscale=gs)
                 if m:
                     return case, m
             if time.perf_counter() >= end:
@@ -712,8 +715,9 @@ class Runner:
                 try:
                     case, m = self._wait_first([{"if": n, "grayscale": None} for n in rep["while"]],
                                                rep["timeout"], threshold, grayscale=rep["grayscale"])
-                except StepFailed:
+                except StepFailed as e:
                     case = m = None
+                    missing = str(e)        # enthält die besten Übereinstimmungen
                 except EndReached as e:
                     sr.status, sr.detail = "ok", str(e)
                     raise
@@ -732,6 +736,11 @@ class Runner:
                         result.message = f"Wiederholung: {sr.detail}, keine einzige Runde ausgeführt."
                         return False
                     sr.status, sr.detail = "ok", f"nicht mehr sichtbar, Schleife nach {rounds} Runden beendet"
+                    if not nested and max_rounds and rounds < max_rounds:
+                        # vor der Höchstzahl beendet: festhalten, was zu sehen war
+                        sr.detail += f" ({missing})"
+                        sr.screenshot = self._failure_screenshot(run_dir, f"ende_Runde_{rounds + 1}.png")
+                        log.info("[%s] %s", round_phase, sr.detail)
                     if not nested:
                         result.message = f"{rounds} Runden erfolgreich, danach war {names} nicht mehr sichtbar."
                     return True
