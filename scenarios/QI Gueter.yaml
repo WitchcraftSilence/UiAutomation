@@ -36,7 +36,7 @@ steps:
       - if: QI Produziere Güter 1 Maske.png
         then:
           - click: QI Produziere Güter 1 Maske.png
-            offset: [0, 1.5w]
+            offset: [0, 1.6w]
             think: 0                 # sofort, bevor ein Tooltip Bild 1 verdecken kann
             threshold: 0.7
     threshold: 0.7
@@ -45,7 +45,7 @@ steps:
     note: rechter Knopf
   - click: QI Ernte Gut.png             # erscheint ca. 1 s nach "Produzieren"; einsammeln, dann nächste Runde
     timeout: 5
-    offset: [0, 1.5w]                     # 1,5 Bildbreiten unterhalb klicken, sonst überlagert der Tooltip
+    offset: [0, 1.6w]                     # 1,5 Bildbreiten unterhalb klicken, sonst überlagert der Tooltip
     threshold: 0.7                        # Gut pulsiert: hell 0,76-0,82, dunkel 0,93; bester Fehltreffer 0,58
     note: unter dem Gut
   - wait: [0.8, 1.0]                # Maus steht jetzt auf dem Gebäude: warten, bis dessen Tooltip sicher da ist

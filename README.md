@@ -44,7 +44,7 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 | `scroll` | Rasten (negativ = nach unten) | |
 | `wait` | Sekunden oder `[min, max]` | |
 | `click_here` | Anzahl Klicks (`0` = bis Stopp) | schnell dort klicken, wo die Maus steht (etwa 7–9 Klicks/s; die Maus verrutscht nur selten um 1 px; Tempo und Zittern über `rapid_*` in `human`) |
-| `negotiate` | Bilder `suggestions`, `menu`, `pay`, `success` | `timeout`, siehe unten |
+| `negotiate` | Bilder `suggestions`, `menu`, `pay`, `success`, optional `failed` | `timeout`, siehe unten |
 | `end` | optionaler Grund, z. B. `end: Niederlage` (oder nur `- end`) | beendet den Ablauf sofort erfolgreich, meist in `if_seen`/`then` |
 
 Jede Aktion kann zusätzlich eine `note` als Kommentar im Bericht bekommen.
@@ -109,10 +109,11 @@ Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (mindestens ein r
       menu: Ressource.png         # Überschrift "Ressource auswählen" des Auswahlmenüs
       pay: Bezahlen.png           # Knopf "Bezahlen & Verhandeln"
       success: Erfolg.png         # erscheint bei gewonnener Verhandlung; nur den Schriftzug aufnehmen, ohne Hintergrund
+      failed: Ende.png            # optional: erscheint, wenn alle Versuche verbraucht sind ("Versuche zu Ende")
     timeout: 5
 ```
 
-Je Runde liest das Tool die aktuelle (unterste) Zeile der Vorschlagstabelle. Sie ist die einzige mit kräftigen Güter-Symbolen auf schwarzem Kreis, ältere Zeilen sind blass. Für jede Person mit Vorschlag drückt es deren Taste 1–5 (wirkt wie ein Klick auf „Angebot machen“), sucht das vorgeschlagene Gut im Menü und klickt darauf. Bevor es das Gut sucht, fährt die Maus kurz auf die Überschriftsleiste des Menüs, denn über einem Knopf „Angebot machen“ würde dessen Tooltip das Gut verdecken. Erscheint das Menü nicht, drückt es die Taste bis zu dreimal. Danach klickt es auf „Bezahlen & Verhandeln“. Erscheint dann das Erfolgsbild, endet der Schritt. Erscheint stattdessen eine neue Zeile, folgt die nächste Runde, höchstens 10 Runden. Die Güter werden zur Laufzeit zwischen Tabelle und Menü verglichen und müssen nicht einzeln aufgenommen werden. Das Erfolgsfenster schließen die Schritte danach, siehe `scenarios/Verhandlung.yaml`.
+Je Runde liest das Tool die aktuelle (unterste) Zeile der Vorschlagstabelle. Sie ist die einzige mit kräftigen Güter-Symbolen auf schwarzem Kreis, ältere Zeilen sind blass. Für jede Person mit Vorschlag drückt es deren Taste 1–5 (wirkt wie ein Klick auf „Angebot machen“), sucht das vorgeschlagene Gut im Menü und klickt darauf. Bevor es das Gut sucht, fährt die Maus kurz auf die Überschriftsleiste des Menüs, denn über einem Knopf „Angebot machen“ würde dessen Tooltip das Gut verdecken. Erscheint das Menü nicht, drückt es die Taste bis zu dreimal. Danach klickt es auf „Bezahlen & Verhandeln“. Erscheint dann das Erfolgsbild, endet der Schritt. Erscheint das `failed`-Bild, sind alle Versuche verbraucht, und der Schritt schlägt mit dieser Meldung fehl. Einen weiteren Zug kauft das Tool nicht. Erscheint stattdessen eine neue Zeile, folgt die nächste Runde, höchstens 10 Runden. Die Güter werden zur Laufzeit zwischen Tabelle und Menü verglichen und müssen nicht einzeln aufgenommen werden. Das Erfolgsfenster schließen die Schritte danach, siehe `scenarios/Verhandlung.yaml`.
 
 ### Einstellungen im Steuerfenster
 

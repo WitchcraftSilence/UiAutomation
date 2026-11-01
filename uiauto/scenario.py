@@ -23,7 +23,7 @@ ACTIONS = {
     "if_seen": True,        # führt 'then' nur aus, wenn das Bild erscheint
     "if_counter": False,    # Leiste (Bild oder Liste) finden, "x/total" rechts lesen; 'then', wenn 'when' zutrifft
     "replace_damaged": False,   # {army: bild, pool: bild}: beschädigte Einheiten gegen gesunde gleicher Art tauschen
-    "negotiate": False,     # {suggestions, menu, pay, success}: Vorschläge der Tabelle übernehmen
+    "negotiate": False,     # {suggestions, menu, pay, success, failed?}: Vorschläge der Tabelle übernehmen
     "first_seen": False,    # Liste von {if: bild, then: [...]}: das zuerst erscheinende Bild gewinnt
     "type": False,
     "press": False,
@@ -182,8 +182,9 @@ def _parse_step(raw, where, images_dir):
                                      for j, r in enumerate(options["if_missing"])]
     elif action == "negotiate":
         keys = {"suggestions", "menu", "pay", "success"}
-        if not isinstance(value, dict) or set(value) != keys:
-            raise ScenarioError(f"{where}: negotiate erwartet die Bilder {', '.join(sorted(keys))}")
+        if not isinstance(value, dict) or not keys <= set(value) <= keys | {"failed"}:
+            raise ScenarioError(f"{where}: negotiate erwartet die Bilder {', '.join(sorted(keys))} "
+                                f"und optional failed")
         for img in value.values():
             if not (images_dir / str(img)).exists():
                 raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(img)}")

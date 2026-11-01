@@ -566,12 +566,14 @@ class Runner:
 
                 def seen():         # der Tooltip blendet kurz aus, darum mehrmals versuchen
                     found[:] = [negotiation.find_good(good, screen.grab(menu))]
-                    return found[0][0] >= negotiation.SAME_GOOD
+                    return negotiation.accepted(found[0][0], found[0][2])
 
                 if not self._poll(seen, self.MENU_WAIT):
                     raise StepFailed(f"Runde {rnd}: Gut für Person {icon.person} nicht im Menü gefunden "
-                                     f"(beste Übereinstimmung {found[0][0]:.2f}, Schwelle {negotiation.SAME_GOOD:.2f})")
-                score, (gx, gy) = found[0]
+                                     f"(beste Übereinstimmung {found[0][0]:.2f}, nächstbeste Stelle "
+                                     f"{found[0][2]:.2f}, Schwelle {negotiation.SAME_GOOD:.2f} "
+                                     f"oder {negotiation.LEAD:.2f} Vorsprung)")
+                score, (gx, gy), _ = found[0]
                 human.think()
                 human.click(menu[0] + gx, menu[1] + gy, target_size=30)
                 self._wait_image(imgs["menu"], timeout, threshold, present=False, grayscale=gs)
@@ -582,16 +584,23 @@ class Runner:
             human.click(*click_point(pay, human.cfg), target_size=min(pay.w, pay.h))
             row_y = icons[0].y
             success = []
+            failed = []
 
             def result():
                 if self.matcher.find(imgs["success"], self._region(), threshold, grayscale=gs):
                     success.append(True)
+                    return True
+                if imgs.get("failed") and self.matcher.find(imgs["failed"], self._region(), threshold, grayscale=gs):
+                    failed.append(True)
                     return True
                 new = negotiation.current_icons(screen.grab(area))
                 return bool(new) and new[0].y > row_y + negotiation.SAME_ROW
 
             if not self._poll(result, timeout):
                 raise StepFailed(f"Runde {rnd}: nach dem Bezahlen weder Erfolg noch neue Vorschläge")
+            if failed:
+                raise StepFailed(f"Verhandlung gescheitert nach {rnd} Runde{'n' if rnd > 1 else ''}: "
+                                 f"Versuche zu Ende (Glück, kein Erkennungsfehler)")
             if success:
                 return f"Erfolg nach {rnd} Runde{'n' if rnd > 1 else ''}"
             self.control.sleep(self.ROUND_PAUSE)   # das Spiel nimmt Tasten erst kurz nach der neuen Zeile an

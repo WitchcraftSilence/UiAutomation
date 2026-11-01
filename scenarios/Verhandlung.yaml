@@ -16,6 +16,7 @@ steps:
       menu: GEX Verhandlung 4d Ressource Waehlen.png  # Überschrift des Auswahlmenüs
       pay: GEX Verhandlung 4c Bezahlen.png
       success: GEX Verhandlung 9 Erfolg.png        # nur der Schriftzug ERFOLG auf dem grünen Band
+      failed: GEX Verhandlung 11 Versuche zu Ende.png   # alle Versuche verbraucht: Pech, kein Erkennungsfehler
     timeout: 5                # so lange wird auf Menü, Knopf und Ergebnis gewartet
   - press: esc               # Erfolgsfenster schließen
   - if_seen: GEX Verhandlung 10 Dipl Geschenk ESC.png

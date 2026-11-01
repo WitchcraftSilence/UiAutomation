@@ -14,10 +14,16 @@ import numpy as np
 PERSONS = 5
 DARK = 60               # Summe B+G+R, unter der ein Pixel zum schwarzen Kreis gehört
 ICON_H = (38, 64)       # Höhe eines Kreises (mit Abzeichen) in px
+ICON_D = 48             # übliche Kantenlänge; ist der Kreis oben vom Gut verdeckt, wird von unten so hoch geschnitten
 MIN_DARK_PX = 30        # so viele schwarze Pixel braucht eine Spalte für ein Symbol
 SAME_ROW = 8            # px: Symbole in dieser Höhe gehören zur selben Zeile
+ICON_GAP = 8            # px: Lücken im Kreis bis zu dieser Höhe überbrücken (helle Güter verdecken ihn teilweise)
 SCALES = np.arange(0.8, 1.61, 0.05)     # Symbol im Menü ist etwa gleich groß, je nach Zoom etwas größer
 SAME_GOOD = 0.75        # Mindest-Übereinstimmung Vorschlag ↔ Menü (richtig ≥ 0,87, falsches Gut ≤ 0,61)
+# Dünne Strichzeichnungen (Spirale) sind im Menü leicht anders gezeichnet und erreichen nur
+# etwa 0,67, alle anderen Stellen im Menü aber nur 0,2. Darum reicht auch ein klarer Vorsprung.
+MIN_GOOD = 0.55         # darunter nie
+LEAD = 0.25             # so weit muss der Treffer vor der besten anderen Stelle im Menü liegen
 
 
 @dataclass
@@ -40,12 +46,12 @@ def header_rows(template):
     raise ValueError("keine Kopfzeile erkannt (dunkle Zeile mit 'Person 1 … Person 5' oben im Bild)")
 
 
-def _bands(rows):
-    """Zusammenhängende Zeilenbereiche (Lücken bis 3 px werden überbrückt): Liste von (y0, y1)."""
+def _bands(rows, gap=3):
+    """Zusammenhängende Zeilenbereiche (Lücken bis gap px werden überbrückt): Liste von (y0, y1)."""
     ys = np.nonzero(rows)[0]
     if len(ys) == 0:
         return []
-    parts = np.split(ys, np.where(np.diff(ys) > 3)[0] + 1)
+    parts = np.split(ys, np.where(np.diff(ys) > gap)[0] + 1)
     return [(p[0], p[-1]) for p in parts]
 
 
@@ -75,10 +81,11 @@ def current_icons(img):
     for p in range(PERSONS):
         x0, x1 = p * w // PERSONS, (p + 1) * w // PERSONS
         col = dark[:, x0:x1]
-        for y0, y1 in _bands(col.sum(1) > 0):
+        for y0, y1 in _bands(col.sum(1) > 0, ICON_GAP):
             if ICON_H[0] <= y1 - y0 + 1 <= ICON_H[1] and col[y0:y1 + 1].sum() >= MIN_DARK_PX:
                 xs = np.nonzero(col[y0:y1 + 1].any(0))[0]
-                found.append(Icon(p + 1, x0 + int(xs[0]), int(y0), int(y1 - y0 + 1)))
+                d = max(int(y1 - y0 + 1), ICON_D)      # Unterkante (Abzeichen) ist verlässlicher als die Oberkante
+                found.append(Icon(p + 1, x0 + int(xs[0]), max(0, int(y1) - d + 1), d))
     if not found:
         return []
     row = max(i.y for i in found)
@@ -113,10 +120,12 @@ def menu_span(row, x0, x1):
 
 
 def find_good(icon, menu):
-    """Symbol aus dem Vorschlag im Menü suchen (mehrere Größen). Gibt (übereinstimmung, (x, y)) zurück,
-    (x, y) = Mitte des Treffers im Menü-Bild."""
+    """Symbol aus dem Vorschlag im Menü suchen (mehrere Größen). Gibt (übereinstimmung, (x, y), zweitbeste)
+    zurück, (x, y) = Mitte des Treffers im Menü-Bild, zweitbeste = beste Übereinstimmung an einer
+    anderen Stelle des Menüs (mehr als eine halbe Symbolbreite entfernt)."""
     mask = icon_mask(icon)
-    best = (-1.0, None)
+    best = (-1.0, None, 0)
+    results = []
     for s in SCALES:
         t = cv2.resize(icon, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
         if t.shape[0] >= menu.shape[0] or t.shape[1] >= menu.shape[1]:
@@ -124,7 +133,22 @@ def find_good(icon, menu):
         mk = cv2.resize(mask, (t.shape[1], t.shape[0]), interpolation=cv2.INTER_NEAREST)
         res = cv2.matchTemplate(menu, t, cv2.TM_CCOEFF_NORMED, mask=cv2.merge([mk] * 3))
         res[~np.isfinite(res)] = -1
+        results.append((res, t.shape[1]))
         _, v, _, loc = cv2.minMaxLoc(res)
         if v > best[0]:
-            best = (float(v), (loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2))
-    return best
+            best = (float(v), (loc[0] + t.shape[1] // 2, loc[1] + t.shape[0] // 2), t.shape[1])
+    score, pos, w = best
+    if pos is None:
+        return score, pos, -1.0
+    second = -1.0
+    for res, tw in results:
+        cx = np.arange(res.shape[1]) + tw // 2      # Mitte des Treffers je Spalte
+        far = np.abs(cx - pos[0]) > w / 2
+        if far.any():
+            second = max(second, float(res[:, far].max()))
+    return score, pos, second
+
+
+def accepted(score, second):
+    """Gut gilt als gefunden: hohe Übereinstimmung oder klarer Vorsprung vor allen anderen Stellen."""
+    return score >= SAME_GOOD or (score >= MIN_GOOD and score - second >= LEAD)
