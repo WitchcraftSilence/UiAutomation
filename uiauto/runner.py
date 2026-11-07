@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 import cv2
+import numpy as np
 import pyautogui
 
 from . import army, config, negotiation, ocr, report, screen, window
@@ -225,6 +226,8 @@ class Runner:
             return self._replace_damaged(v, opts, human, timeout, threshold, gs)
         if a == "negotiate":
             return self._negotiate(v, human, timeout, threshold, gs)
+        if a == "collect_relics":
+            return self._collect_relics(v, human, timeout, threshold, gs)
         if a == "first_seen":
             case, m = self._wait_first(v, timeout, threshold, grayscale=gs)
             return f"'{case['if']}' erschienen (Treffer {m.score:.2f})", case["then"]
@@ -317,6 +320,182 @@ class Runner:
             if pressed:
                 human.mouse_up()
         return f"{first_count} Treffer abgefahren in {passes} {'Durchgang' if passes == 1 else 'Durchgängen'}"
+
+    MARKER_INSET = 4        # px Rand, der von der Vorlage der Anzeige abgeschnitten wird (mit Rand: farbig nur 0,81, ohne 0,99)
+    MARKER_SAT = 60         # mittlere Sättigung (HSV), ab der die Relikt-Anzeige als farbig gilt (grau ≈ 23, farbig ≈ 114)
+    PAN = 0.4               # so weit wird die Karte je Zug gezogen (Anteil der Fensterbreite/-höhe)
+    PAN_EDGE = 0.25         # bewegt sich die Karte um weniger als diesen Anteil des Zugs, ist der Rand erreicht
+    PAN_MAX = 60            # so oft wird beim Absuchen höchstens gezogen
+    PAN_SETTLE = 0.4        # s nach dem Ziehen, bis die Karte ruhig steht
+
+    def _marker_colored(self, marker, timeout, threshold):
+        """Relikt-Anzeige suchen (in Graustufen, passt farbig und grau) und True, wenn sie farbig ist.
+
+        Gesucht wird nur der Innenteil der Vorlage: Der Rand der Anzeige sieht farbig anders aus."""
+        inner = f"{marker} [innen]"
+        i = self.MARKER_INSET
+        self.matcher.register(inner, self.matcher.template(marker)[i:-i, i:-i])
+        m = self._wait_image(inner, timeout, threshold, grayscale=True)
+        b = self.MARKER_INSET
+        img = screen.grab((m.x, m.y, m.w, m.h))
+        sat = float(cv2.cvtColor(img, cv2.COLOR_BGR2HSV)[b:m.h - b, b:m.w - b, 1].mean())
+        return sat >= self.MARKER_SAT, sat
+
+    def _find_relic(self, relics, threshold, grayscale):
+        region = self._region()
+        shot = screen.grab(region)
+        found = [m for n in relics if (m := self.matcher.find(n, region, threshold, shot=shot, grayscale=grayscale))]
+        return max(found, key=lambda m: m.score) if found else None
+
+    def _map_crop(self):
+        """Mittlerer Teil des Fensters in Graustufen (ohne Leisten am Rand), zum Messen der Kartenbewegung."""
+        x, y, w, h = self._region()
+        img = screen.grab((x + w // 4, y + h // 4, w // 2, h // 2))
+        return np.float32(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+
+    def _pan(self, human, dx, dy):
+        """Karte mit gedrückter linker Maustaste um (dx, dy) ziehen, symmetrisch um die Fenstermitte.
+        Gibt zurück, ob sie sich bewegt hat (False = Rand der Karte erreicht)."""
+        x, y, w, h = self._region()
+        sx = x + w // 2 - dx // 2 + random.randint(-20, 20)
+        sy = y + h // 2 - dy // 2 + random.randint(-20, 20)
+        before = self._map_crop()
+        human.move_to(sx, sy, target_size=200)
+        human.mouse_down()
+        try:
+            human.move_to(sx + dx, sy + dy, target_size=200)
+            self.control.sleep(uniform(human.cfg["hover_time"]))   # kurz halten, sonst rollt die Karte nach
+        finally:
+            human.mouse_up()
+        self.control.sleep(self.PAN_SETTLE)
+        (mx, my), _ = cv2.phaseCorrelate(before, self._map_crop())     # Animationen (Lava, Rauch) stören kaum
+        moved = abs(mx) if dx else abs(my)
+        return moved >= self.PAN_EDGE * abs(dx or dy)
+
+    OK_MAX = 5              # so viele Dialoge (Relikt, danach weitere Belohnungen) werden höchstens nacheinander quittiert
+    OK_NEXT = 1.0           # s, so lange wird nach einem OK auf den nächsten Dialog gewartet
+    OK_SETTLE = (0.4, 0.6)  # s vor jedem Klick: Dialog fertig eingeblendet, ein schließender ist weg
+
+    def _close_dialogs(self, ok, human, timeout, threshold, gs, stop=None):
+        """OK klicken, solange Dialoge kommen: Nach einem Relikt folgt manchmal noch eine Belohnung
+        mit demselben Knopf. Der erste Dialog muss innerhalb von timeout erscheinen.
+        stop: Bild eines Dialogs, der nicht mit OK geschlossen werden darf (Abschlussdialog mit
+        "Jetzt spielen", hat ebenfalls einen OK-Knopf). Ist es zu sehen, endet das Quittieren."""
+        clicked = 0
+        while clicked < self.OK_MAX:
+            try:
+                self._wait_image(ok, timeout if clicked == 0 else self.OK_NEXT, threshold, grayscale=gs)
+            except StepFailed:
+                if clicked == 0:
+                    raise
+                return clicked
+            self.control.sleep(uniform(list(self.OK_SETTLE)))
+            region = self._region()
+            shot = screen.grab(region)
+            if stop and self.matcher.find(stop, region, threshold, shot=shot, grayscale=gs):
+                return clicked
+            # erst jetzt die Stelle nehmen: direkt nach einem Klick ist der schließende Dialog noch kurz zu sehen
+            m = self.matcher.find(ok, region, threshold, shot=shot, grayscale=gs)
+            if m:
+                human.click(*click_point(m, human.cfg), target_size=min(m.w, m.h))
+                clicked += 1
+        self._wait_image(ok, timeout, threshold, present=False, grayscale=gs)
+        return clicked
+
+    UNLESS_WAIT = 1.5       # s, so lange wird beim Start ohne Dialog auf das unless-Bild gewartet
+
+    def _collect_relics(self, imgs, human, timeout, threshold, gs):
+        """Level fertig: Relikte einsammeln, die laut Anzeige noch auf der Karte liegen, dann im
+        Abschlussdialog den Knopf next ("Jetzt spielen") klicken.
+
+        Der Schritt darf mit offenem Abschlussdialog beginnen (dann wird er mit Esc geschlossen) oder
+        ohne, denn sind noch Relikte da, kommt der Dialog manchmal gar nicht. Ohne Dialog gilt: Ist
+        das unless-Bild zu sehen (der nächste Kampf), ist das Level nicht fertig, und es passiert nichts.
+        Die Anzeige ist immer zu sehen. Ist sie farbig, wird die Karte abgesucht (_search_relics),
+        bis sie grau ist. Dann wird auf den Dialog gewartet und next geklickt.
+        """
+        dialog = self.matcher.find(imgs["done"], self._region(), threshold, grayscale=gs)
+        if not dialog and imgs.get("unless"):
+            try:
+                self._wait_image(imgs["unless"], self.UNLESS_WAIT, threshold, grayscale=gs)
+                return f"Level noch nicht fertig ('{imgs['unless']}' sichtbar)"
+            except StepFailed:
+                pass
+        colored, sat = self._marker_colored(imgs["marker"], timeout, threshold)
+        collected, pans = 0, 0
+        if colored:
+            if dialog:
+                human.press("esc")
+                self._wait_image(imgs["done"], timeout, threshold, present=False, grayscale=gs)
+            collected, pans, sat = self._search_relics(imgs, human, timeout, threshold, gs)
+        self._wait_image(imgs["done"], timeout, threshold, grayscale=gs)
+        detail = (f"{collected} Relikt{'e' if collected != 1 else ''} eingesammelt, Karte {pans}× gezogen, "
+                  f"Anzeige grau (Sättigung {sat:.0f})")
+        if imgs.get("next"):
+            human.think()
+            m = self._wait_image(imgs["next"], timeout, threshold, grayscale=gs)
+            human.click(*click_point(m, human.cfg), target_size=min(m.w, m.h))
+            detail += f", '{imgs['next']}' geklickt"
+        return detail
+
+    def _search_relics(self, imgs, human, timeout, threshold, gs):
+        """Karte absuchen, bis die Anzeige grau ist. Gibt (eingesammelt, gezogen, sättigung) zurück.
+
+        Erst wird die Karte bis in die linke obere Ecke gezogen, dann zeilenweise abgefahren: bis zum
+        rechten Rand, eine Zeile tiefer, bis zum linken Rand usw., bis der untere Rand erreicht ist.
+        Nach jedem Zug wird gesucht. Nach einem Relikt geht es an derselben Stelle weiter.
+        """
+        x, y, w, h = self._region()
+        sx, sy = int(w * self.PAN), int(h * self.PAN)
+        # Inhalt nach rechts ziehen = weiter links ansehen
+        view = {"links": (sx, 0), "rechts": (-sx, 0), "oben": (0, sy), "unten": (0, -sy)}
+        collected, pans = 0, 0
+
+        def look():
+            """Sichtbare Relikte einsammeln. True, wenn die Anzeige danach grau ist."""
+            nonlocal collected
+            while relic := self._find_relic(imgs["relics"], threshold, gs):
+                human.click(*click_point(relic, human.cfg), target_size=min(relic.w, relic.h))
+                self._close_dialogs(imgs["ok"], human, timeout, threshold, gs, stop=imgs.get("next"))
+                collected += 1
+                colored, sat = self._marker_colored(imgs["marker"], timeout, threshold)
+                if not colored:
+                    return True, sat
+            if self.matcher.find(imgs["done"], self._region(), threshold, grayscale=gs):
+                return True, self._marker_colored(imgs["marker"], timeout, threshold)[1]
+            return False, None
+
+        def move(direction):
+            nonlocal pans
+            if pans >= self.PAN_MAX:
+                raise StepFailed(f"Karte {pans}× gezogen, Anzeige immer noch farbig ({collected} eingesammelt)")
+            pans += 1
+            return self._pan(human, *view[direction])
+
+        done, sat = look()
+        if done:
+            return collected, pans, sat
+        for corner in ("oben", "links"):            # in die linke obere Ecke, unterwegs mitsuchen
+            while move(corner):
+                done, sat = look()
+                if done:
+                    return collected, pans, sat
+        done, sat = look()
+        if done:
+            return collected, pans, sat
+        across = "rechts"
+        while True:
+            while move(across):
+                done, sat = look()
+                if done:
+                    return collected, pans, sat
+            if not move("unten"):
+                raise StepFailed(f"Ganze Karte abgesucht ({pans}× gezogen), Anzeige immer noch farbig "
+                                 f"({collected} eingesammelt)")
+            done, sat = look()
+            if done:
+                return collected, pans, sat
+            across = "links" if across == "rechts" else "rechts"
 
     def _find_bar(self, names, timeout, threshold):
         """Leiste (Fortschrittsbalken) finden: Rahmen und Symbolfeld vergleichen, dann prüfen,

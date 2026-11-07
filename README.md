@@ -45,6 +45,7 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 | `wait` | Sekunden oder `[min, max]` | |
 | `click_here` | Anzahl Klicks (`0` = bis Stopp) | schnell dort klicken, wo die Maus steht (etwa 7–9 Klicks/s; die Maus verrutscht nur selten um 1 px; Tempo und Zittern über `rapid_*` in `human`) |
 | `negotiate` | Bilder `suggestions`, `menu`, `pay`, `success`, optional `failed` | `timeout`, siehe unten |
+| `collect_relics` | `relics` (Liste), `ok`, `marker`, `done`, optional `next`, `unless` | Level fertig: ist die Relikt-Anzeige farbig, die ganze Karte zeilenweise abziehen und Relikte einsammeln, dann im Abschlussdialog `next` klicken; `timeout`, siehe unten |
 | `end` | optionaler Grund, z. B. `end: Niederlage` (oder nur `- end`) | beendet den Ablauf sofort erfolgreich, meist in `if_seen`/`then` |
 
 Jede Aktion kann zusätzlich eine `note` als Kommentar im Bericht bekommen.
@@ -114,6 +115,21 @@ Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (mindestens ein r
 ```
 
 Je Runde liest das Tool die aktuelle (unterste) Zeile der Vorschlagstabelle. Sie ist die einzige mit kräftigen Güter-Symbolen auf schwarzem Kreis, ältere Zeilen sind blass. Für jede Person mit Vorschlag drückt es deren Taste 1–5 (wirkt wie ein Klick auf „Angebot machen“), sucht das vorgeschlagene Gut im Menü und klickt darauf. Bevor es das Gut sucht, fährt die Maus kurz auf die Überschriftsleiste des Menüs, denn über einem Knopf „Angebot machen“ würde dessen Tooltip das Gut verdecken. Erscheint das Menü nicht, drückt es die Taste bis zu dreimal. Danach klickt es auf „Bezahlen & Verhandeln“. Erscheint dann das Erfolgsbild, endet der Schritt. Erscheint das `failed`-Bild, sind alle Versuche verbraucht, und der Schritt schlägt mit dieser Meldung fehl. Einen weiteren Zug kauft das Tool nicht. Erscheint stattdessen eine neue Zeile, folgt die nächste Runde, höchstens 10 Runden. Die Güter werden zur Laufzeit zwischen Tabelle und Menü verglichen und müssen nicht einzeln aufgenommen werden. Das Erfolgsfenster schließen die Schritte danach, siehe `scenarios/Verhandlung.yaml`.
+
+### Relikte einsammeln (Gildenexpedition)
+
+```yaml
+  - collect_relics:
+      relics: [Gold.png, Silber.png, Jade.png]   # Relikte auf der Karte
+      ok: Relikt OK.png           # OK im Dialog nach dem Einsammeln
+      marker: ReliktVorhanden.png # Anzeige, immer sichtbar: farbig = noch Relikte da, grau = keine
+      done: Next Level.png        # Abschlussdialog des Levels
+      next: Jetzt spielen.png     # optional: Knopf im Abschlussdialog, wird am Ende geklickt
+      unless: Pfeil.png           # optional: ist das zu sehen (und kein Dialog), ist das Level nicht fertig
+    timeout: 3
+```
+
+Der Schritt darf mit offenem Abschlussdialog beginnen oder ohne, denn liegen noch Relikte auf der Karte, kommt der Dialog manchmal gar nicht. Ohne Dialog wartet er bis 1,5 s auf das `unless`-Bild. Erscheint es, tut er nichts. Sonst prüft er die Anzeige. Ist sie farbig (mittlere Sättigung ab 60, grau etwa 23, farbig etwa 114), schließt er einen offenen Dialog mit Esc und sucht die Relikte an der aktuellen Stelle. Dann zieht er die Karte mit gedrückter Maustaste (je 40 % der Fensterbreite bzw. -höhe) bis in die linke obere Ecke und fährt sie danach zeilenweise ab: bis zum rechten Rand, eine Zeile tiefer, bis zum linken Rand usw. Den Rand erkennt er daran, dass sich die Karte beim Ziehen kaum noch bewegt. Nach jedem Zug sucht er. Jedes Relikt wird angeklickt und mit `ok` quittiert, auch mehrere Dialoge nacheinander, aber nie der Abschlussdialog (erkannt an `next`). Danach prüft er die Anzeige: Ist sie noch farbig, geht die Suche an derselben Stelle weiter. Ist sie grau, wartet er bis `timeout` auf den Abschlussdialog und klickt `next`. Ist die ganze Karte abgesucht oder 60-mal gezogen und die Anzeige noch farbig, schlägt der Schritt fehl.
 
 ### Einstellungen im Steuerfenster
 

@@ -24,6 +24,7 @@ ACTIONS = {
     "if_counter": False,    # Leiste (Bild oder Liste) finden, "x/total" rechts lesen; 'then', wenn 'when' zutrifft
     "replace_damaged": False,   # {army: bild, pool: bild}: beschädigte Einheiten gegen gesunde gleicher Art tauschen
     "negotiate": False,     # {suggestions, menu, pay, success, failed?}: Vorschläge der Tabelle übernehmen
+    "collect_relics": False,    # {relics: [bilder], ok, marker, done, next?, unless?}: Karte absuchen und Relikte einsammeln
     "first_seen": False,    # Liste von {if: bild, then: [...]}: das zuerst erscheinende Bild gewinnt
     "type": False,
     "press": False,
@@ -62,6 +63,8 @@ class Step:
             text = f"negotiate: {self.value['suggestions']}"
         elif self.action == "drag_over":
             text = "drag_over: " + " | ".join(self.value)
+        elif self.action == "collect_relics":
+            text = "collect_relics: " + " | ".join(self.value["relics"])
         elif self.action == "first_seen":
             text = "first_seen: " + " | ".join(c["if"] for c in self.value)
         else:
@@ -193,6 +196,17 @@ def _parse_step(raw, where, images_dir):
             negotiation.header_rows(screen.imread(images_dir / value["suggestions"]))
         except ValueError as e:
             raise ScenarioError(f"{where}: {e}") from None
+    elif action == "collect_relics":
+        keys = {"relics", "ok", "marker", "done"}
+        if not isinstance(value, dict) or not keys <= set(value) <= keys | {"next", "unless"}:
+            raise ScenarioError(f"{where}: collect_relics erwartet {', '.join(sorted(keys))} "
+                                f"und optional next, unless")
+        relics = value["relics"]
+        value = {k: str(v) for k, v in value.items() if k != "relics"}
+        value["relics"] = [str(r) for r in relics] if isinstance(relics, list) else [str(relics)]
+        for img in value["relics"] + [v for k, v in value.items() if k != "relics"]:
+            if not (images_dir / img).exists():
+                raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
     if action != "replace_damaged" and "if_missing" in options:
         raise ScenarioError(f"{where}: 'if_missing' gibt es nur bei replace_damaged")
     elif action == "repeat":
