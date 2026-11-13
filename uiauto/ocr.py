@@ -78,41 +78,51 @@ def read_fraction(img):
 
 # ---------------------------------------------------------------- Zähler in einer Leiste
 
-ICON_W = 35             # Breite des Symbolfelds links (Symbol und Hintergrundfarbe wechseln je nach Gilde)
+ICON_W = 35             # Breite des Symbolfelds links in der Vorlage (Symbol und Hintergrundfarbe wechseln je nach Gilde)
+BAR_X = ICON_W - 3      # ab hier wird verglichen: heller Trennstrich (2 px), dann der schwarze Rand der Leiste
 FILL_ROWS = slice(4, 9) # Zeilen direkt unter dem oberen Rahmen: Füllfarbe der Leiste, nie Text
+FILL_COLS = slice(6, -6)
 
 
-def bar_frame(template):
-    """Maske für die Teile einer Leiste, die sich nie ändern: Rahmen oben/unten, linker Rand
-    und der helle Trennstrich zwischen Symbolfeld und Leiste.
+def bar_part(template):
+    """Die Vorlage ohne Gilden-Symbolfeld, ab dem hellen Trennstrich.
 
-    Das Innere des Symbolfelds hat je nach Gilde eine andere Farbe (blau, rot, ...), der
-    rechte Rand ist nicht bei allen Leisten gleich aufgebaut; beides wird nicht verglichen.
+    Das Symbolfeld wechselt je nach Gilde Symbol und Farbe, und der Browser rundet seine Breite
+    je nach Lage (bei 110 % Zoom mal 28, mal 29 px). Es wird darum gar nicht verglichen.
+    """
+    return template[:, BAR_X:]
+
+
+def bar_frame(part):
+    """Maske für die Teile einer Leiste (bar_part), die sich nie ändern: heller Rahmen oben/unten
+    und heller Trennstrich links (der schwarze Rand dahinter ist je nach Rundung nicht überall schwarz).
+
+    Der rechte Rand ist nicht bei allen Leisten gleich aufgebaut und wird nicht verglichen.
     Die Leiste selbst ist ein Fortschrittsbalken (hell = erreicht, dunkel = offen) und wird
     darum hier nicht verglichen, sondern danach mit bar_fill_ok geprüft.
     """
-    mask = np.zeros(template.shape[:2], np.uint8)
+    mask = np.zeros(part.shape[:2], np.uint8)
     mask[:3] = 255
     mask[-3:] = 255
-    mask[:, :4] = 255
-    mask[:, ICON_W - 3:ICON_W - 1] = 255
+    mask[:, :2] = 255
     return mask
 
 
-def height_variants(template):
-    """Die Vorlage in ihrer Höhe sowie 1 px niedriger und höher (Zeile in der Mitte entfernt/verdoppelt)."""
-    mid = template.shape[0] // 2
-    return {0: template,
-            -1: np.delete(template, mid, axis=0),
-            +1: np.insert(template, mid, template[mid], axis=0)}
+def height_variants(part):
+    """Die Vorlage in ihrer Höhe sowie 1 px höher und niedriger (Zeile in der Mitte verdoppelt/entfernt);
+    der Browser rundet die Höhe je nach Lage der Leiste."""
+    mid = part.shape[0] // 2
+    return {0: part,
+            +1: np.insert(part, mid, part[mid], axis=0),
+            -1: np.delete(part, mid, axis=0)}
 
 
-def fill_profiles(template):
-    """Die beiden Füllfarben der Leiste (gefüllt, offen) als Spaltenprofile aus der Vorlage.
+def fill_profiles(part):
+    """Die beiden Füllfarben der Leiste (gefüllt, offen) als Spaltenprofile aus der Vorlage (bar_part).
 
     Die Vorlage muss teilweise gefüllt sein, sonst fehlt eine der beiden Farben.
     """
-    band = template[FILL_ROWS, ICON_W + 3:-6].astype(float)            # Zeilen x Spalten x BGR
+    band = part[FILL_ROWS, FILL_COLS].astype(float)            # Zeilen x Spalten x BGR
     light = band.mean(axis=(0, 2))
     cut = (light.max() + light.min()) / 2
     if light.max() - light.min() < 25:
@@ -120,9 +130,9 @@ def fill_profiles(template):
     return [np.median(band[:, light >= cut], axis=1), np.median(band[:, light < cut], axis=1)]
 
 
-def bar_fill_ok(profiles, crop, max_rms=15.0, min_share=0.9):
-    """Hat jede Spalte der Leiste eine der beiden Füllfarben? Gibt den Anteil passender Spalten zurück."""
-    band = crop[FILL_ROWS, ICON_W + 3:-6].astype(float)
+def bar_fill_ok(profiles, crop, max_rms=15.0):
+    """Hat jede Spalte der Leiste (bar_part) eine der beiden Füllfarben? Gibt den Anteil passender Spalten zurück."""
+    band = crop[FILL_ROWS, FILL_COLS].astype(float)
     best = np.min([np.sqrt(((band - prof[:, None, :]) ** 2).mean(axis=(0, 2))) for prof in profiles], axis=0)
     return float((best < max_rms).mean())
 
@@ -132,7 +142,7 @@ def counter_x_live(crop):
     try:
         return counter_layout(crop)[1]
     except ValueError:
-        return max(ICON_W, crop.shape[1] - 110)
+        return max(6, crop.shape[1] - 110)
 
 
 def counter_layout(template):

@@ -155,7 +155,7 @@ def _parse_step(raw, where, images_dir):
             if not (images_dir / img).exists():
                 raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
             try:
-                ocr.fill_profiles(screen.imread(images_dir / img))
+                ocr.fill_profiles(ocr.bar_part(screen.imread(images_dir / img)))
             except ValueError as e:
                 raise ScenarioError(f"{where}: {img}: {e}") from None
     elif "when" in options:

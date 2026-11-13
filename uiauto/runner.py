@@ -502,10 +502,10 @@ class Runner:
         ob die Leiste nur aus den beiden Füllfarben der Vorlage besteht. Gibt (treffer, bild) zurück."""
         bars = []
         for name in names:
-            tpl = self.matcher.template(name)
-            profiles = ocr.fill_profiles(tpl)
+            part = ocr.bar_part(self.matcher.template(name))   # ohne Gilden-Symbolfeld
+            profiles = ocr.fill_profiles(part)
             # Der Browser rundet die Höhe der Leiste je nach Lage um 1 px auf oder ab
-            for dh, variant in ocr.height_variants(tpl).items():
+            for dh, variant in ocr.height_variants(part).items():
                 frame = f"{name} [Rahmen {dh:+d}]"
                 self.matcher.register(frame, variant, mask=ocr.bar_frame(variant))
                 bars.append((frame, profiles))
