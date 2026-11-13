@@ -11,8 +11,10 @@ human:
 steps:
   - repeat:
       while: QI Kampf.png
+      threshold: 0.85           # Browser rundet die Schrift je nach Lage um 1 px, dann nur ~0,897
     steps:                      # gleiche Höhe wie "repeat:"
       - click: QI Kampf.png
+        threshold: 0.85
       - replace_damaged:        # beschädigte Einheiten gegen gesunde derselben Art tauschen
           army: QI Verteidigende Armee.png   # Armee, gefunden über die Überschrift
           pool: QI Available.png             # verfügbare Einheiten, gefunden über die Reiter

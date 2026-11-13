@@ -17,7 +17,8 @@ ICON_H = (38, 64)       # Höhe eines Kreises (mit Abzeichen) in px
 ICON_D = 48             # übliche Kantenlänge; ist der Kreis oben vom Gut verdeckt, wird von unten so hoch geschnitten
 MIN_DARK_PX = 30        # so viele schwarze Pixel braucht eine Spalte für ein Symbol
 SAME_ROW = 8            # px: Symbole in dieser Höhe gehören zur selben Zeile
-ICON_GAP = 8            # px: Lücken im Kreis bis zu dieser Höhe überbrücken (helle Güter verdecken ihn teilweise)
+BORDER = 0.9            # Spalten, die über diesen Anteil der Zeilenhöhe dunkel sind, gelten als Rand
+ICON_GAP = 8           # px: Lücken im Kreis bis zu dieser Höhe überbrücken (helle Güter verdecken ihn teilweise)
 SCALES = np.arange(0.8, 1.61, 0.05)     # Symbol im Menü ist etwa gleich groß, je nach Zoom etwas größer
 SAME_GOOD = 0.75        # Mindest-Übereinstimmung Vorschlag ↔ Menü (richtig ≥ 0,87, falsches Gut ≤ 0,61)
 # Dünne Strichzeichnungen (Spirale) sind im Menü leicht anders gezeichnet und erreichen nur
@@ -77,6 +78,9 @@ def current_icons(img):
     img = img[:table_bottom(img)]
     h, w = img.shape[:2]
     dark = img.astype(int).sum(2) < DARK
+    # Durchgehend dunkle Spalten sind Fensterränder (liegt der Assistent 1 px anders, ragt sein
+    # rechter Rand in die Spalte von Person 5 und macht das Symbol dort zu hoch), nie ein Symbol
+    dark[:, dark.mean(0) > BORDER] = False
     found = []
     for p in range(PERSONS):
         x0, x1 = p * w // PERSONS, (p + 1) * w // PERSONS
