@@ -22,7 +22,7 @@ Beim Start öffnet sich ein kleines **Steuerfenster** mit allen Sequenzen und de
 
 | Hotkey | Funktion |
 |---|---|
-| `Strg+Alt+F10` | Referenzbild aufnehmen (Bereich aufziehen, Namen eingeben; der Name landet in der Zwischenablage) |
+| `Strg+Alt+F10` | Referenzbild aufnehmen (Bereich aufziehen, Namen eingeben, mit `Ordner/Name` in einen Unterordner; der Name landet in der Zwischenablage) |
 | `Strg+Alt+F11` | Pause / Weiter |
 | `Strg+Alt+F12` | Stopp |
 | Maus in eine Bildschirmecke | Not-Aus |
@@ -58,7 +58,7 @@ Vor jedem Schritt macht das Tool eine Denkpause (`think_time`). Mit `think` beko
     think: [0.05, 0.12]   # Sekunden oder [min, max]; 0 = keine Denkpause
 ```
 
-Hat ein Referenzbild transparente Pixel (PNG mit Alphakanal), zählen beim Vergleich nur die übrigen. So lässt sich ein Symbol ohne den Hintergrund suchen, der je nach Stelle im Spiel anders aussieht, z. B. `QI Produziere Güter 1 Maske.png`. Die Treffer liegen dann niedriger, eine Schwelle um `0.7` ist üblich. Die Suche über das ganze Fenster dauert etwa viermal so lange.
+Hat ein Referenzbild transparente Pixel (PNG mit Alphakanal), zählen beim Vergleich nur die übrigen. So lässt sich ein Symbol ohne den Hintergrund suchen, der je nach Stelle im Spiel anders aussieht, z. B. `QI/QI Produziere Güter 1 Maske.png`. Die Treffer liegen dann niedriger, eine Schwelle um `0.7` ist üblich. Die Suche über das ganze Fenster dauert etwa viermal so lange.
 
 `offset` wird von der Bildmitte aus gemessen, entweder in Pixeln (`[150, 0]`) oder in Vielfachen der Bildgröße: `[0, 1.5h]` heißt 1,5 × Bildhöhe nach unten, `[-0.5w, 0]` eine halbe Bildbreite nach links. Negative Werte zeigen nach links bzw. oben.
 

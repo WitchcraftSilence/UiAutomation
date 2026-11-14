@@ -14,7 +14,7 @@ import numpy as np
 PERSONS = 5
 DARK = 60               # Summe B+G+R, unter der ein Pixel zum schwarzen Kreis gehört
 ICON_H = (38, 64)       # Höhe eines Kreises (mit Abzeichen) in px
-ICON_D = 48             # übliche Kantenlänge; ist der Kreis oben vom Gut verdeckt, wird von unten so hoch geschnitten
+ICON_D = 40             # Mindest-Kantenlänge; ist der Kreis oben vom Gut verdeckt, wird von unten mindestens so hoch geschnitten
 MIN_DARK_PX = 30        # so viele schwarze Pixel braucht eine Spalte für ein Symbol
 SAME_ROW = 8            # px: Symbole in dieser Höhe gehören zur selben Zeile
 BORDER = 0.9            # Spalten, die über diesen Anteil der Zeilenhöhe dunkel sind, gelten als Rand
@@ -81,19 +81,23 @@ def current_icons(img):
     # Durchgehend dunkle Spalten sind Fensterränder (liegt der Assistent 1 px anders, ragt sein
     # rechter Rand in die Spalte von Person 5 und macht das Symbol dort zu hoch), nie ein Symbol
     dark[:, dark.mean(0) > BORDER] = False
-    found = []
+    found = []      # (person, x, Unterkante, Höhe)
     for p in range(PERSONS):
         x0, x1 = p * w // PERSONS, (p + 1) * w // PERSONS
         col = dark[:, x0:x1]
         for y0, y1 in _bands(col.sum(1) > 0, ICON_GAP):
             if ICON_H[0] <= y1 - y0 + 1 <= ICON_H[1] and col[y0:y1 + 1].sum() >= MIN_DARK_PX:
                 xs = np.nonzero(col[y0:y1 + 1].any(0))[0]
-                d = max(int(y1 - y0 + 1), ICON_D)      # Unterkante (Abzeichen) ist verlässlicher als die Oberkante
-                found.append(Icon(p + 1, x0 + int(xs[0]), max(0, int(y1) - d + 1), d))
+                found.append((p + 1, x0 + int(xs[0]), int(y1), int(y1 - y0 + 1)))
     if not found:
         return []
-    row = max(i.y for i in found)
-    return [i for i in found if row - i.y <= SAME_ROW]
+    bottom = max(f[2] for f in found)
+    found = [f for f in found if bottom - f[2] <= SAME_ROW]
+    # Kantenlänge aus der ganzen Zeile (Median), nicht fest: hängt vom Browser-Zoom ab
+    # (100 %: etwa 42 px, 110 %: etwa 48 px). Einzelne Güter verdecken den Kreis oben oder
+    # ragen darüber hinaus; die Unterkante (Abzeichen) ist verlässlicher als die Oberkante.
+    d = max(int(np.median([f[3] for f in found])), ICON_D)
+    return [Icon(p, x, max(0, y1 - d + 1), d) for p, x, y1, _ in found]
 
 
 def icon_mask(crop):

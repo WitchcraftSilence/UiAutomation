@@ -10,31 +10,31 @@ human:
 
 steps:
   - repeat:
-      while: QI Kampf.png
+      while: QI/QI Kampf.png
       threshold: 0.85           # Browser rundet die Schrift je nach Lage um 1 px, dann nur ~0,897
     steps:                      # gleiche Höhe wie "repeat:"
-      - click: QI Kampf.png
+      - click: QI/QI Kampf.png
         threshold: 0.85
       - replace_damaged:        # beschädigte Einheiten gegen gesunde derselben Art tauschen
-          army: QI Verteidigende Armee.png   # Armee, gefunden über die Überschrift
-          pool: QI Available.png             # verfügbare Einheiten, gefunden über die Reiter
-          empty: QI Leeres Feld.png          # leeres Feld: nur auffüllen, nichts herausnehmen
+          army: QI/QI Verteidigende Armee.png   # Armee, gefunden über die Überschrift
+          pool: QI/QI Available.png             # verfügbare Einheiten, gefunden über die Reiter
+          empty: QI/QI Leeres Feld.png          # leeres Feld: nur auffüllen, nichts herausnehmen
         if_missing:             # kein gesunder Ersatz: Sequenz beenden
           - end: kein gesunder Ersatz
       - press: b                # Auto-Kampf
       - first_seen:             # nach dem Kampf kommt entweder das Ergebnis oder die zweite Welle
-          - if: QI OK.png
+          - if: QI/QI OK.png
             then:
               - press: esc
-          - if: QI Zweite Welle B.png
+          - if: Gemeinsam/QI Zweite Welle B.png
             then:
               - press: b        # Auto-Kampf für die zweite Welle
-              - wait_for: QI OK.png
+              - wait_for: QI/QI OK.png
                 timeout: 5      # Kampf kann dauern
               - press: esc
         timeout: 3              # so lange dauert der erste Kampf höchstens
       - repeat:                 # Belohnung schließen; Esc wiederholen, bis sie wirklich weg ist
-          while: QI Belohnung ESC.png
+          while: QI/QI Belohnung ESC.png
           timeout: 1            # so lange wird nach der Belohnung gesucht
           max: 5
         steps:

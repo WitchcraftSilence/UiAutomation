@@ -11,10 +11,10 @@ human:
 # Sind keine Güter mehr zu sehen, bis zu 2 s auf neue warten und dann noch einmal einsammeln;
 # kommt in den 2 s keines, ist die Sequenz fertig
 repeat:
-  while: QI Ernte Symbol.png
+  while: QI/QI Ernte Symbol.png
   timeout: 2
   threshold: 0.8
 
 steps:
-  - drag_over: QI Ernte Symbol.png
+  - drag_over: QI/QI Ernte Symbol.png
     threshold: 0.8              # Trainingsbild: alle 11 Güter 0,84-1,00, bester Fehltreffer 0,68

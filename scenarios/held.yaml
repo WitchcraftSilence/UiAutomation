@@ -10,33 +10,33 @@ human:
 
 steps:
 - repeat:                     # Schleife 1
-    while: Held1 A.png
-    until: Held Niederlage.png
+    while: Held/Held1 A.png
+    until: Held/Held Niederlage.png
   steps:                      # gleiche Höhe wie "repeat:"
-    - click: Held1 A.png
+    - click: Held/Held1 A.png
       grayscale: false            # nicht mit dem grauen End-Screen verwechseln
-    - wait_for: Held2 Ersetzen R.png
+    - wait_for: Held/Held2 Ersetzen R.png
     - press: r
     - press: b
-    - wait_for: Held4 OK ESC.png
+    - wait_for: Held/Held4 OK ESC.png
       check_end: true             # derselbe OK-Knopf steht im Niederlage-Dialog
     - press: esc
       timeout: 0.5
-- if_seen: Held Niederlage.png  # endete Schleife 1 mit einer Niederlage, erst den Dialog schließen
+- if_seen: Held/Held Niederlage.png  # endete Schleife 1 mit einer Niederlage, erst den Dialog schließen
   timeout: 0.5
   then:
     - press: esc
-    - expect_not: Held Niederlage.png
+    - expect_not: Held/Held Niederlage.png
 - repeat:                     # Schleife 2, startet nach Schleife 1
-    while: Held5 V.png
-    until: Held Niederlage.png
+    while: Held/Held5 V.png
+    until: Held/Held Niederlage.png
   steps:
-    - click: Held5 V.png
+    - click: Held/Held5 V.png
       grayscale: false            # nicht mit dem grauen End-Screen verwechseln
-    - wait_for: Held6 Ersetzen R.png
+    - wait_for: Held/Held6 Ersetzen R.png
     - press: r
     - press: b
-    - wait_for: Held8 OK ESC.png
+    - wait_for: Held/Held8 OK ESC.png
       check_end: true             # derselbe OK-Knopf steht im Niederlage-Dialog
     - press: esc
       timeout: 0.5

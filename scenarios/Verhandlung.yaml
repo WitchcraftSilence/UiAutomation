@@ -12,14 +12,14 @@ steps:
   # Runde für Runde: je Person mit Vorschlag Taste 1-5 (= "Angebot machen") -> vorgeschlagenes
   # Gut wählen, dann "Bezahlen & Verhandeln". Endet, sobald das Erfolgsbild erscheint.
   - negotiate:
-      suggestions: GEX Verhandlung 3 Runde 1 Vorschlag.png   # nur die Kopfzeile "Person 1 … 5" wird gesucht
-      menu: GEX Verhandlung 4d Ressource Waehlen.png  # Überschrift des Auswahlmenüs
-      pay: GEX Verhandlung 4c Bezahlen.png
-      success: GEX Verhandlung 9 Erfolg.png        # nur der Schriftzug ERFOLG auf dem grünen Band
-      failed: GEX Verhandlung 11 Versuche zu Ende.png   # alle Versuche verbraucht: Pech, kein Erkennungsfehler
+      suggestions: Verhandlung/GEX Verhandlung 3 Runde 1 Vorschlag.png   # nur die Kopfzeile "Person 1 … 5" wird gesucht
+      menu: Verhandlung/GEX Verhandlung 4d Ressource Waehlen.png  # Überschrift des Auswahlmenüs
+      pay: Verhandlung/GEX Verhandlung 4c Bezahlen.png
+      success: Verhandlung/GEX Verhandlung 9 Erfolg.png        # nur der Schriftzug ERFOLG auf dem grünen Band
+      failed: Verhandlung/GEX Verhandlung 11 Versuche zu Ende.png   # alle Versuche verbraucht: Pech, kein Erkennungsfehler
     timeout: 5                # so lange wird auf Menü, Knopf und Ergebnis gewartet
   - press: esc               # Erfolgsfenster schließen
-  - if_seen: GEX Verhandlung 10 Dipl Geschenk ESC.png
+  - if_seen: Verhandlung/GEX Verhandlung 10 Dipl Geschenk ESC.png
     timeout: 1.5
     then:
       - press: esc

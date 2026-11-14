@@ -89,13 +89,19 @@ class Recorder:
 
         default = f"bild_{datetime.now():%Y%m%d_%H%M%S}"
         name = simpledialog.askstring("Referenzbild speichern",
-                                      "Name des Bildes (ohne .png):",
+                                      "Name des Bildes (ohne .png, Unterordner mit /):",
                                       initialvalue=default, parent=self.root)
         if not name:
             self.on_done()
             return
-        name = re.sub(r'[<>:"/\\|?*]+', "_", name.strip())
-        path = self.images_dir / f"{name}.png"
+        # "Ordner/Name" legt das Bild in einem Unterordner ab (je Sequenz einer)
+        parts = [re.sub(r'[<>:"|?*]+', "_", p.strip()) for p in re.split(r"[/\\]", name)]
+        parts = [p for p in parts if p and p not in (".", "..")]
+        if not parts:
+            self.on_done()
+            return
+        path = self.images_dir.joinpath(*parts[:-1], f"{parts[-1]}.png")
+        path.parent.mkdir(parents=True, exist_ok=True)
         screen.imwrite(path, crop)
         rel = path.relative_to(self.images_dir).as_posix()
         self.root.clipboard_clear()

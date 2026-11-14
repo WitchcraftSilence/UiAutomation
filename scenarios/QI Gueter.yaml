@@ -14,36 +14,36 @@ params:
 
 repeat:
   while:                             # vor jeder Runde muss Bild 1 oder sein Tooltip zu sehen sein
-    - QI Produziere Güter 1 Maske.png      # nur Mond und "zz", Hintergrund transparent
-    - QI Güter Produzieren 1a Tooltip.png   # steht die Maus schon darauf, verdeckt der Tooltip Bild 1
-    - QI Güter Einsammeln Tooltip.png       # Gut wurde nicht eingesammelt, Tooltip "Klicke, um einzusammeln."
+    - QI/QI Produziere Güter 1 Maske.png      # nur Mond und "zz", Hintergrund transparent
+    - QI/QI Güter Produzieren 1a Tooltip.png   # steht die Maus schon darauf, verdeckt der Tooltip Bild 1
+    - QI/QI Güter Einsammeln Tooltip.png       # Gut wurde nicht eingesammelt, Tooltip "Klicke, um einzusammeln."
   max: $durchlaeufe                  # nach so vielen Runden ist Schluss
   threshold: 0.7                     # Symbol 0,78-0,87 je nach Welt, ohne Symbol höchstens 0,25
 
 steps:
   - first_seen:                     # Tooltip zuerst: steht die Maus auf dem Gebäude, verdeckt er Bild 1 gleich
-      - if: QI Güter Einsammeln Tooltip.png    # Klick unter dem Gut hat es nicht eingesammelt
+      - if: QI/QI Güter Einsammeln Tooltip.png    # Klick unter dem Gut hat es nicht eingesammelt
         threshold: 0.9               # die beiden Tooltips treffen sich gegenseitig mit 0,73, sich selbst mit 1,00
         then:
           - click_here: 1            # erst einsammeln ...
-          - wait_for: QI Güter Produzieren 1a Tooltip.png
+          - wait_for: QI/QI Güter Produzieren 1a Tooltip.png
             timeout: 3
           - click_here: 1            # ... dann wie gewohnt "Produzieren" öffnen
-      - if: QI Güter Produzieren 1a Tooltip.png
+      - if: QI/QI Güter Produzieren 1a Tooltip.png
         threshold: 0.9
         then:
           - click_here: 1            # Maus steht schon richtig: einfach dort klicken
-      - if: QI Produziere Güter 1 Maske.png
+      - if: QI/QI Produziere Güter 1 Maske.png
         then:
-          - click: QI Produziere Güter 1 Maske.png
+          - click: QI/QI Produziere Güter 1 Maske.png
             offset: [0, 1.6w]
             think: 0                 # sofort, bevor ein Tooltip Bild 1 verdecken kann
             threshold: 0.7
     threshold: 0.7
-  - click: QI Güter Produzieren 3a.png   # Bild 1 öffnet die vier Knöpfe "Produzieren"
+  - click: QI/QI Güter Produzieren 3a.png   # Bild 1 öffnet die vier Knöpfe "Produzieren"
     offset: [314, 0]                     # Mitte des Knopfs ganz rechts
     note: rechter Knopf
-  - click: QI Ernte Gut.png             # erscheint ca. 1 s nach "Produzieren"; einsammeln, dann nächste Runde
+  - click: QI/QI Ernte Gut.png             # erscheint ca. 1 s nach "Produzieren"; einsammeln, dann nächste Runde
     timeout: 5
     offset: [0, 1.6w]                     # 1,5 Bildbreiten unterhalb klicken, sonst überlagert der Tooltip
     threshold: 0.7                        # Gut pulsiert: hell 0,76-0,82, dunkel 0,93; bester Fehltreffer 0,58
