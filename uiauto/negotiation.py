@@ -25,6 +25,10 @@ SAME_GOOD = 0.75        # Mindest-Übereinstimmung Vorschlag ↔ Menü (richtig 
 # etwa 0,67, alle anderen Stellen im Menü aber nur 0,2. Darum reicht auch ein klarer Vorsprung.
 MIN_GOOD = 0.55         # darunter nie
 LEAD = 0.25             # so weit muss der Treffer vor der besten anderen Stelle im Menü liegen
+TILE_HSV = ((5, 120, 110), (30, 255, 255))   # Orange der Kacheln im Menü (OpenCV-HSV)
+TILE_MIN_PX = 300       # kleinere orange Flecken sind keine Kachel
+TILE_SIMILAR = 0.7      # Kacheln sind mindestens so breit/hoch wie dieser Anteil der größten
+MENU_KEYS = 8           # Tasten 1 … MENU_KEYS wählen im offenen Menü die Kachel (zeilenweise); weitere werden angeklickt
 
 
 @dataclass
@@ -125,6 +129,38 @@ def menu_span(row, x0, x1):
     while right < len(px) - 1 and gray(right + 1):
         right += 1
     return left, right + 1
+
+
+def menu_tiles(menu):
+    """Orangefarbene Kacheln im Menü "Ressource auswählen", zeilenweise von links oben: Liste von (x, y, w, h).
+
+    Die Reihenfolge entspricht den Tasten 1, 2, 3 …, mit denen man im offenen Menü ein Gut wählt.
+    Orange Güter (Kupfer, Gold) ergeben kleine Flecken in der Kachel; die fallen über die Größe heraus.
+    """
+    hsv = cv2.cvtColor(menu, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, TILE_HSV[0], TILE_HSV[1])
+    _, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=4)
+    boxes = [tuple(int(v) for v in s[:4]) for s in stats[1:] if s[4] >= TILE_MIN_PX]
+    if not boxes:
+        return []
+    w_max, h_max = max(b[2] for b in boxes), max(b[3] for b in boxes)
+    boxes = [b for b in boxes if b[2] >= TILE_SIMILAR * w_max and b[3] >= TILE_SIMILAR * h_max]
+    boxes.sort(key=lambda b: b[1])
+    rows = []
+    for b in boxes:
+        if rows and b[1] - rows[-1][0][1] < h_max / 2:
+            rows[-1].append(b)
+        else:
+            rows.append([b])
+    return [b for row in rows for b in sorted(row)]
+
+
+def tile_number(tiles, x, y):
+    """Nummer (1, 2, …) der Kachel, in der (x, y) liegt, sonst None."""
+    for i, (tx, ty, tw, th) in enumerate(tiles, 1):
+        if tx <= x < tx + tw and ty <= y < ty + th:
+            return i
+    return None
 
 
 def find_good(icon, menu):

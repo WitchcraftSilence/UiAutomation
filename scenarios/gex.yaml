@@ -49,7 +49,7 @@ steps:
         then:
           - press: esc          # weiter
     timeout: 2
-  - click: GEX1 Pfeil.png       # Belohnung
+  - click: Gex/Gex1 Pfeil.png       # Belohnung
     offset: [0, 4.2h]           # 1,5 × Bildhöhe unterhalb der Bildmitte
     note: unter dem Pfeil
   - repeat:                      # Belohnungsdialoge schließen, manchmal kommen zwei nacheinander

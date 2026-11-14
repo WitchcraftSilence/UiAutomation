@@ -7,3 +7,6 @@ logs/
 
 # Referenzbilder sind vertraulich und bleiben lokal
 images/**/*.png
+
+# letzte Ordnerwahl des Aufnahmewerkzeugs
+images/.letzter_ordner

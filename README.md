@@ -22,7 +22,7 @@ Beim Start öffnet sich ein kleines **Steuerfenster** mit allen Sequenzen und de
 
 | Hotkey | Funktion |
 |---|---|
-| `Strg+Alt+F10` | Referenzbild aufnehmen (Bereich aufziehen, Namen eingeben, mit `Ordner/Name` in einen Unterordner; der Name landet in der Zwischenablage) |
+| `Strg+Alt+F10` | Referenzbild aufnehmen (Bereich aufziehen, Sequenzordner aus der Liste wählen – die letzte Wahl wird gemerkt, ein neuer Name legt den Ordner an –, Namen eingeben; der Pfad landet in der Zwischenablage) |
 | `Strg+Alt+F11` | Pause / Weiter |
 | `Strg+Alt+F12` | Stopp |
 | Maus in eine Bildschirmecke | Not-Aus |
@@ -114,7 +114,7 @@ Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (mindestens ein r
     timeout: 5
 ```
 
-Je Runde liest das Tool die aktuelle (unterste) Zeile der Vorschlagstabelle. Sie ist die einzige mit kräftigen Güter-Symbolen auf schwarzem Kreis, ältere Zeilen sind blass. Für jede Person mit Vorschlag drückt es deren Taste 1–5 (wirkt wie ein Klick auf „Angebot machen“), sucht das vorgeschlagene Gut im Menü und klickt darauf. Bevor es das Gut sucht, fährt die Maus kurz auf die Überschriftsleiste des Menüs, denn über einem Knopf „Angebot machen“ würde dessen Tooltip das Gut verdecken. Erscheint das Menü nicht, drückt es die Taste bis zu dreimal. Danach klickt es auf „Bezahlen & Verhandeln“. Erscheint dann das Erfolgsbild, endet der Schritt. Erscheint das `failed`-Bild, sind alle Versuche verbraucht, und der Schritt schlägt mit dieser Meldung fehl. Einen weiteren Zug kauft das Tool nicht. Erscheint stattdessen eine neue Zeile, folgt die nächste Runde, höchstens 10 Runden. Die Güter werden zur Laufzeit zwischen Tabelle und Menü verglichen und müssen nicht einzeln aufgenommen werden. Das Erfolgsfenster schließen die Schritte danach, siehe `scenarios/Verhandlung.yaml`.
+Je Runde liest das Tool die aktuelle (unterste) Zeile der Vorschlagstabelle. Sie ist die einzige mit kräftigen Güter-Symbolen auf schwarzem Kreis, ältere Zeilen sind blass. Für jede Person mit Vorschlag drückt es deren Taste 1–5 (wirkt wie ein Klick auf „Angebot machen“), sucht das vorgeschlagene Gut im Menü und wählt es mit der Taste seiner Kachel (1–8, zeilenweise von links oben gezählt; weitere Kacheln werden angeklickt). Bevor es das Gut sucht, fährt die Maus kurz auf die Überschriftsleiste des Menüs, denn über einem Knopf „Angebot machen“ würde dessen Tooltip das Gut verdecken. Erscheint das Menü nicht, drückt es die Taste bis zu dreimal. Danach klickt es auf „Bezahlen & Verhandeln“. Erscheint dann das Erfolgsbild, endet der Schritt. Erscheint das `failed`-Bild, sind alle Versuche verbraucht, und der Schritt schlägt mit dieser Meldung fehl. Einen weiteren Zug kauft das Tool nicht. Erscheint stattdessen eine neue Zeile, folgt die nächste Runde, höchstens 10 Runden. Die Güter werden zur Laufzeit zwischen Tabelle und Menü verglichen und müssen nicht einzeln aufgenommen werden. Das Erfolgsfenster schließen die Schritte danach, siehe `scenarios/Verhandlung.yaml`.
 
 ### Relikte einsammeln (Gildenexpedition)
 

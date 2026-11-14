@@ -753,10 +753,18 @@ class Runner:
                                      f"{found[0][2]:.2f}, Schwelle {negotiation.SAME_GOOD:.2f} "
                                      f"oder {negotiation.LEAD:.2f} Vorsprung)")
                 score, (gx, gy), _ = found[0]
+                # Im offenen Menü wählt die Taste n die n-te Kachel (zeilenweise, bis MENU_KEYS); sonst klicken
+                num = negotiation.tile_number(negotiation.menu_tiles(screen.grab(menu)), gx, gy)
                 human.think()
-                human.click(menu[0] + gx, menu[1] + gy, target_size=30)
+                if num and num <= negotiation.MENU_KEYS:
+                    human.press(str(num))
+                    how = f"Taste {num}"
+                else:
+                    human.click(menu[0] + gx, menu[1] + gy, target_size=30)
+                    how = "Klick" if num is None else f"Klick auf Kachel {num}"
                 self._wait_image(imgs["menu"], timeout, threshold, present=False, grayscale=gs)
-                log.info("Verhandlung Runde %d: Person %d Gut gewählt (Übereinstimmung %.2f)", rnd, icon.person, score)
+                log.info("Verhandlung Runde %d: Person %d Gut gewählt per %s (Übereinstimmung %.2f)",
+                         rnd, icon.person, how, score)
                 human.think()
 
             pay = self._wait_image(imgs["pay"], timeout, threshold, grayscale=gs)

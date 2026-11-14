@@ -1,13 +1,13 @@
 """Aufnahmewerkzeug für Referenzbilder.
 
 Friert den Bildschirm ein, der Benutzer zieht mit der Maus ein Rechteck auf,
-gibt einen Namen ein, und der Ausschnitt wird pixelgenau unter images/ gespeichert.
+wählt den Sequenzordner und gibt einen Namen ein, und der Ausschnitt wird pixelgenau unter images/ gespeichert.
 Der relative Pfad landet in der Zwischenablage, zum Einfügen in die YAML-Datei.
 """
 import re
 import tkinter as tk
 from datetime import datetime
-from tkinter import simpledialog
+from tkinter import ttk
 
 import cv2
 from PIL import Image, ImageEnhance, ImageTk
@@ -88,16 +88,15 @@ class Recorder:
         self._close()
 
         default = f"bild_{datetime.now():%Y%m%d_%H%M%S}"
-        name = simpledialog.askstring("Referenzbild speichern",
-                                      "Name des Bildes (ohne .png, Unterordner mit /):",
-                                      initialvalue=default, parent=self.root)
-        if not name:
+        answer = self._ask_name(default)
+        if not answer:
             self.on_done()
             return
-        # "Ordner/Name" legt das Bild in einem Unterordner ab (je Sequenz einer)
-        parts = [re.sub(r'[<>:"|?*]+', "_", p.strip()) for p in re.split(r"[/\\]", name)]
+        folder, name = answer
+        # Ordner aus der Liste (oder neu eingetippt) plus Name; "/" im Namen geht auch
+        parts = [re.sub(r'[<>:"|?*]+', "_", p.strip()) for p in re.split(r"[/\\]",f"{folder}/{name}")]
         parts = [p for p in parts if p and p not in (".", "..")]
-        if not parts:
+        if not parts or not name.strip():
             self.on_done()
             return
         path = self.images_dir.joinpath(*parts[:-1], f"{parts[-1]}.png")
@@ -108,6 +107,73 @@ class Recorder:
         self.root.clipboard_append(rel)
         self.notify("Referenzbild gespeichert", f"{rel} ({r - l}×{b - t}) – Name in Zwischenablage")
         self.on_done()
+
+    NO_FOLDER = "(kein Ordner)"
+    LAST_FILE = ".letzter_ordner"     # unter images/, merkt sich die letzte Ordnerwahl
+
+    def _folders(self):
+        dirs = sorted(p.relative_to(self.images_dir).as_posix()
+                      for p in self.images_dir.rglob("*") if p.is_dir())
+        return [self.NO_FOLDER] + dirs
+
+    def _last_folder(self):
+        try:
+            return (self.images_dir / self.LAST_FILE).read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+
+    def _ask_name(self, default):
+        """Dialog mit Ordnerliste (Sequenzordner unter images/) und Namen. Gibt (ordner, name)
+        oder None zurück. Der Ordner kann auch neu eingetippt werden; die Wahl wird gemerkt."""
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Referenzbild speichern")
+        dlg.attributes("-topmost", True)
+        dlg.resizable(False, False)
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+
+        folders = self._folders()
+        last = self._last_folder()
+        ttk.Label(frm, text="Ordner:").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        folder = tk.StringVar(value=last if last in folders else self.NO_FOLDER)
+        ttk.Combobox(frm, textvariable=folder, values=folders, width=40).grid(
+            row=0, column=1, sticky="we", pady=(0, 6))
+        ttk.Label(frm, text="Name (ohne .png):").grid(row=1, column=0, sticky="w", padx=(0, 8))
+        name = tk.StringVar(value=default)
+        entry = ttk.Entry(frm, textvariable=name, width=43)
+        entry.grid(row=1, column=1, sticky="we")
+        ttk.Label(frm, text="Gleicher Name ersetzt das vorhandene Bild.", foreground="gray").grid(
+            row=2, column=1, sticky="w", pady=(4, 0))
+
+        result = []
+
+        def ok(_=None):
+            f = folder.get().strip()
+            f = "" if f == self.NO_FOLDER else f
+            result.append((f, name.get()))
+            try:
+                (self.images_dir / self.LAST_FILE).write_text(f, encoding="utf-8")
+            except OSError:
+                pass
+            dlg.destroy()
+
+        btns = ttk.Frame(frm)
+        btns.grid(row=3, column=0, columnspan=2, sticky="e", pady=(12, 0))
+        ttk.Button(btns, text="Speichern", command=ok).pack(side="left", padx=(0, 6))
+        ttk.Button(btns, text="Abbrechen", command=dlg.destroy).pack(side="left")
+        dlg.bind("<Return>", ok)
+        dlg.bind("<Escape>", lambda e: dlg.destroy())
+
+        dlg.update_idletasks()
+        x = (dlg.winfo_screenwidth() - dlg.winfo_width()) // 2
+        y = (dlg.winfo_screenheight() - dlg.winfo_height()) // 3
+        dlg.geometry(f"+{x}+{y}")
+        dlg.focus_force()
+        entry.focus_set()
+        entry.select_range(0, "end")
+        dlg.grab_set()
+        dlg.wait_window()
+        return result[0] if result else None
 
     def _close(self):
         if self._win:
