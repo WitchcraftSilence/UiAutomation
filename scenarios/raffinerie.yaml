@@ -1,0 +1,106 @@
+name: Raffinerie
+hotkey: ctrl+alt+r
+
+# Gold-Blaupausen veredeln: Arche → "Blaupausen" → "Blaupausen-Veredelung", dann im Dropdown alle Gebäude
+# der Reihe nach durchgehen. Veredelt wird nur bei Die Arche, Castel del Monte, Aachener Dom, Observatorium,
+# Zeusstatue, Deal Castle und Royal Albert Hall, je Gebäude höchstens 1×, und nur wenn
+#   - die Zahl neben "Veredeln" eine 5 ist (heute noch nicht veredelt) und
+#   - keine Diamanten verlangt werden (fehlt etwas, steht ein Diamant im Knopf und in der Kostenliste).
+#
+# Welches Gebäude gewählt ist, zeigt der Name neben dem Dropdown (Bilder Raffinerie/<Kürzel>.png, nur der
+# Name ohne "- Stufe …"). So hängt nichts an der Reihenfolge in der Liste.
+# Gebäude wechseln per Tastatur: Klick auf das Dropdown öffnet die Liste, die Leertaste schließt sie wieder,
+# die Tastatur bleibt aber beim Dropdown. Pfeil runter wählt dann das nächste Gebäude. Der Klick kommt vor
+# jedem Gebäude, denn nach einem Klick auf den OK-Dialog kommen Pfeiltasten sonst nicht mehr an
+# (Lauf 19.11. 21:05: Royal Albert Hall nie gewählt).
+human:
+  think_time: [0.1, 0.25]
+  move_speed: 1.2
+  hover_time: [0.08, 0.2]
+
+steps:
+  - click: Raffinerie/BPRaf 1 Arche  Click.png
+  - click: Raffinerie/BPRaf 2 Blaupausen Click.png
+  - click: Raffinerie/BPRaf 3 BPVeredelung Click.png
+
+  # Erster Eintrag (Die Arche) per Klick: feste Stelle unter dem Knopf, Text 20 px rechts der Knopfmitte.
+  # Bei offener Liste zeigt der Pfeil nach oben, der Knopf trifft dann nur 0,90: Schwelle 0,85.
+  - click: Raffinerie/BPRaf 4 Dropdown Click.png      # Liste öffnen
+  - click: Raffinerie/BPRaf 4 Dropdown Click.png
+    offset: [20, 26]
+    threshold: 0.85
+    note: Die Arche
+  - wait: [0.6, 0.9]                # Dialog zeigt das gewählte Gebäude
+  - first_seen: &gebaeude           # welches Gebäude? Unbekannter Name (neues Gebäude): Fehler nach 3 s
+      # --- diese werden veredelt ---
+      - if: Raffinerie/Arche.png
+        then: &veredeln
+          - first_seen:
+              - if: Raffinerie/BPRaf 6 Dias im Knopf.png   # Diamant im Knopf "Veredeln": nicht veredeln
+                then: []
+              - if: Raffinerie/BPRaf 6 Noch 5.png          # heute noch nicht veredelt: 1× veredeln
+                then:
+                  - click: Raffinerie/BPRaf 7 Veredeln Click.png
+                  - wait: [1.0, 1.5]
+                  - if_seen: Gemeinsam/OK Braun ESC.png    # falls danach ein Dialog kommt
+                    timeout: 1
+                    then:
+                      - click: Gemeinsam/OK Braun ESC.png
+              - if: Raffinerie/BPRaf 7 Veredeln Click.png  # schon veredelt (nicht mehr 5): nichts tun
+                then: []
+            timeout: 3
+      - if: Raffinerie/CDM.png      # Castel del Monte
+        then: *veredeln
+      - if: Raffinerie/AD.png       # Aachener Dom
+        then: *veredeln
+      - if: Raffinerie/Obsi.png     # Observatorium
+        then: *veredeln
+      - if: Raffinerie/Zeus.png     # Zeusstatue
+        then: *veredeln
+      - if: Raffinerie/Deal.png     # Deal Castle
+        then: *veredeln
+      - if: Raffinerie/RAH.png      # Royal Albert Hall
+        then: *veredeln
+      # --- diese nicht ---
+      - if: Raffinerie/Alca.png     # Alcatraz
+        then: []
+      - if: Raffinerie/Burg.png     # Burg Himeji
+        then: []
+      - if: Raffinerie/TA.png       # Terrakotta-Armee
+        then: []
+      - if: Raffinerie/AO.png       # Arktische Orangerie
+        then: []
+      - if: Raffinerie/ST.png       # Saatgut-Tresor
+        then: []
+      - if: Raffinerie/CF.png       # Château Frontenac
+        then: []
+      - if: Raffinerie/BG.png       # Die blaue Galaxie
+        then: []
+      - if: Raffinerie/Kraken.png   # Der Kraken
+        then: []
+      - if: Raffinerie/Virgo.png    # Das Virgo-Projekt
+        then: []
+      - if: Raffinerie/HS.png       # Horizontriss-Siphon
+        then: []
+      - if: Raffinerie/Kolo.png     # Kolosseum
+        then: []
+      - if: Raffinerie/Lotus.png    # Lotustempel
+        then: []
+      - if: Raffinerie/MD.png       # Markusdom
+        then: []
+      - if: Raffinerie/WF.png       # Weltraumfrachter
+        then: []
+    timeout: 3
+
+  # Die übrigen Gebäude: 20 Bilder, also noch 19× weiter. Neues Gebäude: Bild aufnehmen, oben eintragen
+  # und max erhöhen. Am Listenende ändert Pfeil runter nichts mehr, zu viele Runden schaden also nicht.
+  - repeat:
+      while: Raffinerie/BPRaf 4 Dropdown Click.png    # Dialog noch offen
+      max: 19
+    steps:
+      - click: Raffinerie/BPRaf 4 Dropdown Click.png  # Tastatur zum Dropdown (Liste geht auf)
+      - press: space                                  # Liste zu, Tastatur bleibt
+      - press: down                                   # nächstes Gebäude
+      - wait: [0.6, 0.9]
+      - first_seen: *gebaeude
+        timeout: 3

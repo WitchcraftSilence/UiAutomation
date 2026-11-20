@@ -19,6 +19,7 @@ from winrt.windows.storage.streams import DataWriter
 # (Faktor, Interpolation): bei der Geisterschul-Leiste lesen 4-6x zuverlässig
 VARIANTS = [(f, i) for f in (4, 5, 6) for i in (cv2.INTER_CUBIC, cv2.INTER_NEAREST)]
 MIN_VOTES = 4                       # so viele Lesungen müssen übereinstimmen
+EARLY_VOTES = 3                     # oder so viele, wenn bis dahin alle Lesungen einig sind
 _FRACTION = re.compile(r"(\d+)/(\d+)")
 
 _engine = None
@@ -49,30 +50,41 @@ def read_text(img):
     return asyncio.run(_recognize(img))
 
 
-def read_fraction(img):
-    """Liest 'x/total' aus einem BGR-Ausschnitt.
-
-    Gibt ((x, total), stimmen, alle_lesungen) zurück; (x, total) ist None, wenn sich keine
-    Mehrheit findet.
-    """
-    async def all_variants():
-        texts = []
-        for factor, interp in VARIANTS:
-            big = cv2.resize(img, None, fx=factor, fy=factor, interpolation=interp)
-            big = cv2.copyMakeBorder(big, 30, 30, 30, 30, cv2.BORDER_REPLICATE)
-            texts.append(await _recognize(big))
-        return texts
-
-    texts = asyncio.run(all_variants())
+def _tally(texts):
+    """Stimmen je (x, total). Ein Text ohne "/" zählt für (x, total), wenn er genau "x1total" lautet:
+    Die Texterkennung liest den Schrägstrich bei kleinen Zahlen oft als 1 ("5/120" -> "51120")."""
     votes = Counter()
     for t in texts:
         m = _FRACTION.search(re.sub(r"\s+", "", t))
         if m:
             votes[(int(m.group(1)), int(m.group(2)))] += 1
-    if votes:
-        value, n = votes.most_common(1)[0]
-        if n >= MIN_VOTES and value[0] <= value[1]:
-            return value, n, texts
+    digits = [re.sub(r"\D", "", t) for t in texts if "/" not in t]
+    for value in list(votes):
+        votes[value] += sum(d == f"{value[0]}1{value[1]}" for d in digits)
+    return votes
+
+
+def read_fraction(img):
+    """Liest 'x/total' aus einem BGR-Ausschnitt.
+
+    Liest nacheinander in mehreren Vergrößerungen (VARIANTS). Sind die ersten EARLY_VOTES Lesungen
+    einig, reicht das (spart Zeit, jede Lesung kostet etwa 75 ms); sonst braucht es MIN_VOTES.
+    Gibt ((x, total), stimmen, alle_lesungen) zurück; (x, total) ist None, wenn sich keine
+    Mehrheit findet.
+    """
+    async def read(factor, interp):
+        big = cv2.resize(img, None, fx=factor, fy=factor, interpolation=interp)
+        big = cv2.copyMakeBorder(big, 30, 30, 30, 30, cv2.BORDER_REPLICATE)
+        return await _recognize(big)
+
+    texts, votes = [], Counter()
+    for factor, interp in VARIANTS:
+        texts.append(asyncio.run(read(factor, interp)))
+        votes = _tally(texts)
+        if votes:
+            value, n = votes.most_common(1)[0]
+            if value[0] <= value[1] and (n >= MIN_VOTES or (n == len(texts) >= EARLY_VOTES)):
+                return value, n, texts
     return None, max(votes.values(), default=0), texts
 
 
@@ -82,6 +94,61 @@ ICON_W = 35             # Breite des Symbolfelds links in der Vorlage (Symbol un
 BAR_X = ICON_W - 3      # ab hier wird verglichen: heller Trennstrich (2 px), dann der schwarze Rand der Leiste
 FILL_ROWS = slice(4, 9) # Zeilen direkt unter dem oberen Rahmen: Füllfarbe der Leiste, nie Text
 FILL_COLS = slice(6, -6)
+
+
+GRAY_BAR = "grau"        # if_counter: grau = die graue Leiste der eigenen Gilde suchen, ohne Vorlage
+GRAY_NEUTRAL = 8        # max. Abstand R-G und G-B: neutrales Grau (Leisten anderer Gilden sind farbig)
+GRAY_RANGE = (55, 200)  # Helligkeit der grauen Leiste (offen etwa 75, gefüllt 85-175)
+GRAY_MIN_W = 180        # so breit ist die Leiste mindestens (100 %: etwa 257 px); graue Knöpfe sind schmaler
+GRAY_H = (12, 40)       # Höhe der Leiste in px
+
+
+def find_gray_bars(img):
+    """Leisten der eigenen Gilde im Bild: neutral graue Fortschrittsbalken mit schwarzem Rand links
+    und rechts. Die Leisten anderer Gilden sind farbig (grün, rot …) und fallen heraus.
+
+    Gibt eine Liste von (x, y, w, h) zurück: der graue Innenteil ohne Rand.
+    """
+    s = img[:, :, :3].astype(int)
+    b, g, r = s[..., 0], s[..., 1], s[..., 2]
+    neutral = ((np.abs(r - g) < GRAY_NEUTRAL) & (np.abs(g - b) < GRAY_NEUTRAL)
+               & (r > GRAY_RANGE[0]) & (r < GRAY_RANGE[1]))
+    dark = s.sum(2) < 90
+    h, w = neutral.shape
+    rows = []
+    for y in np.nonzero(neutral.sum(1) >= GRAY_MIN_W)[0]:
+        d = np.diff(np.concatenate([[0], neutral[y].astype(np.int8), [0]]))
+        starts, ends = np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]
+        i = int(np.argmax(ends - starts))
+        x0, x1 = int(starts[i]), int(ends[i])
+        # Zeilen ohne Text gehen von Rand zu Rand (schwarz, 1-2 px daneben)
+        if (x1 - x0 >= GRAY_MIN_W and any(x0 - k >= 0 and dark[y, x0 - k] for k in (1, 2))
+                and any(x1 - 1 + k < w and dark[y, x1 - 1 + k] for k in (1, 2))):
+            rows.append((int(y), x0, x1))
+    bars = []                   # je Leiste [x0, x1, erste Zeile, letzte Zeile, Anzahl Randzeilen]
+    for y, x0, x1 in rows:      # Randzeilen über und unter dem Text gehören zur selben Leiste
+        last = bars[-1] if bars else None
+        if last and y - last[3] <= GRAY_H[1] and abs(x0 - last[0]) <= 3 and abs(x1 - last[1]) <= 3:
+            last[3] = y
+            last[4] += 1
+        else:
+            bars.append([x0, x1, y, y, 1])
+    return [(x0, y0, x1 - x0, y1 - y0 + 1) for x0, x1, y0, y1, n in bars
+            if n >= 4 and GRAY_H[0] <= y1 - y0 + 1 <= GRAY_H[1]]
+
+
+def gray_bar_counter(img, box):
+    """Ausschnitt mit dem Zähler einer grauen Leiste (find_gray_bars): von der Lücke nach dem
+    Gildennamen bis zum schwarzen Rand rechts (der Zähler ragt manchmal über das Grau hinaus),
+    nur die Textzeilen."""
+    x, y, w, h = box
+    bar = img[y:y + h, x:x + w, :3]
+    right = x + w
+    mid = img[y + h // 2, :, :3].astype(int).sum(1)
+    while right < min(len(mid), x + w + 8) and mid[right] >= 90:
+        right += 1
+    m = int(h * 0.2)
+    return img[y + m:y + h - m, x + counter_x_live(bar):right, :3]
 
 
 def bar_part(template):

@@ -149,6 +149,16 @@ def similarity(portrait_a, img_b, tile_b, slack=4):
     return float(cv2.minMaxLoc(cv2.matchTemplate(area, key, cv2.TM_CCOEFF_NORMED))[1])
 
 
+STACK_WHITE = 15        # so viele fast weiße Pixel unten links im Porträt = Etikett "x46" (Stapel: 38-75, einzeln: 0)
+
+
+def stacked(img, tile):
+    """Steht die Kachel für mehrere Einheiten (Etikett "xN" unten links)? Dann reicht sie für mehrere Plätze."""
+    x, y, w, h = tile.portrait_box
+    corner = img[y + h - 22:y + h - 2, x:x + w // 2].astype(int)
+    return int((corner.min(2) > 215).sum()) >= STACK_WHITE
+
+
 def crop(img, box):
     x, y, w, h = box
     return img[y:y + h, x:x + w]

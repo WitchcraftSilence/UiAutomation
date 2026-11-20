@@ -35,12 +35,21 @@ class EndReached(Exception):
         self.owner = owner
 
 
+# Option pick: welcher von mehreren gleichen Treffern geklickt wird
+PICK = {"links": lambda ms: min(ms, key=lambda m: m.x), "rechts": lambda ms: max(ms, key=lambda m: m.x),
+        "oben": lambda ms: min(ms, key=lambda m: m.y), "unten": lambda ms: max(ms, key=lambda m: m.y)}
+
+
 class NotSeen(Exception):
     """if_seen: Bild ist nicht erschienen, die then-Schritte entfallen."""
 
     def __init__(self, reason="nicht erschienen"):
         super().__init__(reason)
         self.reason = reason
+
+
+class RelicUnreachable(Exception):
+    """collect_relics: Relikt angeklickt, aber kein OK-Dialog. Es liegt noch hinter einem Kampf."""
 
 
 @dataclass
@@ -190,6 +199,10 @@ class Runner:
 
         if a in ("click", "double_click", "right_click", "move"):
             m = self._wait_image(v, timeout, threshold, grayscale=gs, check_end=bool(opts.get("check_end")))
+            if opts.get("pick"):                # mehrere gleiche Knöpfe: den äußersten in dieser Richtung nehmen
+                region = self._region()
+                found = self.matcher.find_all(v, region, threshold, screen.grab(region), grayscale=gs) or [m]
+                m = PICK[opts["pick"]](found)
             x, y = click_point(m, human.cfg, opts.get("offset"))
             size = min(m.w, m.h)
             if a == "move":
@@ -212,9 +225,12 @@ class Runner:
                 raise NotSeen() from None
             return f"erschienen (Treffer {m.score:.2f})", opts["then"]
         if a == "if_counter":
-            m, bar = self._find_bar(v, timeout, threshold)
-            cx = ocr.counter_x_live(bar)
-            crop = bar[8:-7, cx:-4]     # nur die Textzeilen, ohne Rahmenstrich rechts (würde als "1" gelesen)
+            if v == [ocr.GRAY_BAR]:
+                crop = self._find_gray_bar(timeout)
+            else:
+                m, bar = self._find_bar(v, timeout, threshold)
+                cx = ocr.counter_x_live(bar)
+                crop = bar[8:-7, cx:-4]     # nur die Textzeilen, ohne Rahmenstrich rechts (würde als "1" gelesen)
             value, votes, texts = ocr.read_fraction(crop)
             if value is None:
                 raise NotSeen(f"Zähler nicht lesbar (gelesen: {', '.join(repr(t) for t in texts)})")
@@ -231,6 +247,12 @@ class Runner:
         if a == "first_seen":
             case, m = self._wait_first(v, timeout, threshold, grayscale=gs)
             return f"'{case['if']}' erschienen (Treffer {m.score:.2f})", case["then"]
+        if a == "move_by":
+            x, y = pyautogui.position()
+            j = min(10, max(abs(v[0]), abs(v[1])) // 10)   # weite Wege nie ganz gleich (±10 px), kurze genau
+            tx, ty = x + v[0] + random.randint(-j, j), y + v[1] + random.randint(-j, j)
+            human.move_to(tx, ty, target_size=100)
+            return f"Maus von ({x}, {y}) nach ({tx}, {ty})"
         if a == "click_here":
             # Ausgangsposition bei jedem (Neu-)Start des Schritts: nach einer Pause wegen
             # Mausbewegung wird an der neuen Stelle weitergeklickt
@@ -347,19 +369,30 @@ class Runner:
         found = [m for n in relics if (m := self.matcher.find(n, region, threshold, shot=shot, grayscale=grayscale))]
         return max(found, key=lambda m: m.score) if found else None
 
-    def _map_crop(self):
-        """Mittlerer Teil des Fensters in Graustufen (ohne Leisten am Rand), zum Messen der Kartenbewegung."""
-        x, y, w, h = self._region()
-        img = screen.grab((x + w // 4, y + h // 4, w // 2, h // 2))
-        return np.float32(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    PAN_PATCH = 0.15        # Kantenlänge des Merkausschnitts aus der Fenstermitte (Anteil der Fenstergröße)
+    PAN_SURE = 0.7          # ab diesem Treffer gilt der Merkausschnitt nach dem Ziehen als wiedergefunden
+
+    def _map_shot(self):
+        """Ganzes Fenster in Graustufen, zum Messen der Kartenbewegung."""
+        return cv2.cvtColor(screen.grab(self._region()), cv2.COLOR_BGR2GRAY)
 
     def _pan(self, human, dx, dy):
         """Karte mit gedrückter linker Maustaste um (dx, dy) ziehen, symmetrisch um die Fenstermitte.
-        Gibt zurück, ob sie sich bewegt hat (False = Rand der Karte erreicht)."""
+        Gibt zurück, ob sie sich bewegt hat (False = Rand der Karte erreicht).
+
+        Gemessen wird mit einem Ausschnitt aus der Fenstermitte, der nach dem Ziehen im ganzen Fenster
+        wiedergesucht wird (ein Zug von 0,4 × Fensterbreite verschiebt ihn höchstens bis an den Rand).
+        Früher per phaseCorrelate auf der Fenstermitte: Bei so weitem Zug überlappten vorher und nachher
+        kaum noch, die Messung ergab oft "nicht bewegt", und die rechte Kartenhälfte blieb ungesucht.
+        Rand heißt: Ausschnitt sicher wiedergefunden und kaum verschoben. Wird er nicht sicher gefunden
+        (verdeckt, Animation), gilt die Karte als bewegt; PAN_MAX begrenzt die Suche ohnehin."""
         x, y, w, h = self._region()
         sx = x + w // 2 - dx // 2 + random.randint(-20, 20)
         sy = y + h // 2 - dy // 2 + random.randint(-20, 20)
-        before = self._map_crop()
+        before = self._map_shot()
+        pw, ph = int(w * self.PAN_PATCH), int(h * self.PAN_PATCH)
+        px, py = (w - pw) // 2, (h - ph) // 2
+        patch = before[py:py + ph, px:px + pw]
         human.move_to(sx, sy, target_size=200)
         human.mouse_down()
         try:
@@ -368,9 +401,13 @@ class Runner:
         finally:
             human.mouse_up()
         self.control.sleep(self.PAN_SETTLE)
-        (mx, my), _ = cv2.phaseCorrelate(before, self._map_crop())     # Animationen (Lava, Rauch) stören kaum
-        moved = abs(mx) if dx else abs(my)
-        return moved >= self.PAN_EDGE * abs(dx or dy)
+        after = self._map_shot()
+        _, score, _, (lx, ly) = cv2.minMaxLoc(cv2.matchTemplate(after, patch, cv2.TM_CCOEFF_NORMED))
+        moved = abs(lx - px) if dx else abs(ly - py)
+        edge = score >= self.PAN_SURE and moved < self.PAN_EDGE * abs(dx or dy)
+        log.info("Karte gezogen um (%d, %d): bewegt %d px (Treffer %.2f)%s",
+                 dx, dy, moved, score, " -> Rand" if edge else "")
+        return not edge
 
     OK_MAX = 5              # so viele Dialoge (Relikt, danach weitere Belohnungen) werden höchstens nacheinander quittiert
     OK_NEXT = 1.0           # s, so lange wird nach einem OK auf den nächsten Dialog gewartet
@@ -411,8 +448,13 @@ class Runner:
         Der Schritt darf mit offenem Abschlussdialog beginnen (dann wird er mit Esc geschlossen) oder
         ohne, denn sind noch Relikte da, kommt der Dialog manchmal gar nicht. Ohne Dialog gilt: Ist
         das unless-Bild zu sehen (der nächste Kampf), ist das Level nicht fertig, und es passiert nichts.
-        Die Anzeige ist immer zu sehen. Ist sie farbig, wird die Karte abgesucht (_search_relics),
-        bis sie grau ist. Dann wird auf den Dialog gewartet und next geklickt.
+        Ist es nicht zu sehen, liegt der nächste Kampf oft nur außerhalb des Ausschnitts: Dann wird die
+        Karte nur nach dem unless-Bild abgesucht, ohne Relikte einzusammeln (sonst verschiebt sich die
+        Karte mitten im Level, und danach fehlt der Pfeil, Lauf 17.11.). Erst wenn auch die ganze Karte
+        keinen Kampf mehr zeigt, ist das Level fertig.
+        Relikte außerhalb des Ausschnitts werden also nur am Levelende gesucht: Ist die Anzeige farbig,
+        wird die Karte abgesucht (_search_relics), bis sie grau ist. Dann wird auf den Dialog gewartet
+        und next geklickt.
         """
         dialog = self.matcher.find(imgs["done"], self._region(), threshold, grayscale=gs)
         if not dialog and imgs.get("unless"):
@@ -421,13 +463,22 @@ class Runner:
                 return f"Level noch nicht fertig ('{imgs['unless']}' sichtbar)"
             except StepFailed:
                 pass
+            found = self._search_level_on(imgs, human, threshold, gs)
+            if found:
+                return found
+            dialog = self.matcher.find(imgs["done"], self._region(), threshold, grayscale=gs)
         colored, sat = self._marker_colored(imgs["marker"], timeout, threshold)
         collected, pans = 0, 0
         if colored:
             if dialog:
                 human.press("esc")
                 self._wait_image(imgs["done"], timeout, threshold, present=False, grayscale=gs)
-            collected, pans, sat = self._search_relics(imgs, human, timeout, threshold, gs)
+            try:
+                collected, pans, sat = self._search_relics(imgs, human, timeout, threshold, gs)
+            except RelicUnreachable as e:
+                # Liegt ein Relikt noch hinter einem Kampf, ist das Level nicht fertig (der Pfeil
+                # wurde oben übersehen, z. B. weil er gerade animiert war): nichts weiter tun
+                return f"Level noch nicht fertig: {e}"
         self._wait_image(imgs["done"], timeout, threshold, grayscale=gs)
         detail = (f"{collected} Relikt{'e' if collected != 1 else ''} eingesammelt, Karte {pans}× gezogen, "
                   f"Anzeige grau (Sättigung {sat:.0f})")
@@ -438,64 +489,129 @@ class Runner:
             detail += f", '{imgs['next']}' geklickt"
         return detail
 
-    def _search_relics(self, imgs, human, timeout, threshold, gs):
-        """Karte absuchen, bis die Anzeige grau ist. Gibt (eingesammelt, gezogen, sättigung) zurück.
+    def _search_level_on(self, imgs, human, threshold, gs):
+        """Kein Dialog, kein Kampf im Ausschnitt: Karte nur nach dem unless-Bild (nächster Kampf)
+        absuchen, Relikte bleiben liegen. Gefunden: Meldung "Level noch nicht fertig" (die Karte bleibt
+        dort stehen, die nächste Runde findet den Pfeil). Ganze Karte ohne Kampf, oder der
+        Abschlussdialog ist erschienen: None."""
+        def look():
+            region = self._region()
+            shot = screen.grab(region)
+            if self.matcher.find(imgs["done"], region, threshold, shot=shot, grayscale=gs):
+                return "dialog"
+            if self.matcher.find(imgs["unless"], region, threshold, shot=shot, grayscale=gs):
+                return "kampf"
+            return None
+        result, pans = self._scan_map(human, look)
+        if result == "kampf":
+            return f"Level noch nicht fertig: '{imgs['unless']}' nach {pans}× Ziehen gefunden"
+        return None
+
+    def _scan_map(self, human, look):
+        """Karte absuchen, bis look() etwas anderes als None zurückgibt. Gibt (ergebnis, gezogen)
+        zurück; ergebnis None heißt: ganze Karte abgesucht, nichts gefunden.
 
         Erst wird die Karte bis in die linke obere Ecke gezogen, dann zeilenweise abgefahren: bis zum
         rechten Rand, eine Zeile tiefer, bis zum linken Rand usw., bis der untere Rand erreicht ist.
-        Nach jedem Zug wird gesucht. Nach einem Relikt geht es an derselben Stelle weiter.
+        Nach jedem Zug wird look() aufgerufen.
         """
         x, y, w, h = self._region()
         sx, sy = int(w * self.PAN), int(h * self.PAN)
         # Inhalt nach rechts ziehen = weiter links ansehen
         view = {"links": (sx, 0), "rechts": (-sx, 0), "oben": (0, sy), "unten": (0, -sy)}
-        collected, pans = 0, 0
-
-        def look():
-            """Sichtbare Relikte einsammeln. True, wenn die Anzeige danach grau ist."""
-            nonlocal collected
-            while relic := self._find_relic(imgs["relics"], threshold, gs):
-                human.click(*click_point(relic, human.cfg), target_size=min(relic.w, relic.h))
-                self._close_dialogs(imgs["ok"], human, timeout, threshold, gs, stop=imgs.get("next"))
-                collected += 1
-                colored, sat = self._marker_colored(imgs["marker"], timeout, threshold)
-                if not colored:
-                    return True, sat
-            if self.matcher.find(imgs["done"], self._region(), threshold, grayscale=gs):
-                return True, self._marker_colored(imgs["marker"], timeout, threshold)[1]
-            return False, None
+        pans = 0
 
         def move(direction):
             nonlocal pans
             if pans >= self.PAN_MAX:
-                raise StepFailed(f"Karte {pans}× gezogen, Anzeige immer noch farbig ({collected} eingesammelt)")
+                raise StepFailed(f"Karte {pans}× gezogen, nichts gefunden")
             pans += 1
             return self._pan(human, *view[direction])
 
-        done, sat = look()
-        if done:
-            return collected, pans, sat
+        if (r := look()) is not None:
+            return r, pans
         for corner in ("oben", "links"):            # in die linke obere Ecke, unterwegs mitsuchen
             while move(corner):
-                done, sat = look()
-                if done:
-                    return collected, pans, sat
-        done, sat = look()
-        if done:
-            return collected, pans, sat
+                if (r := look()) is not None:
+                    return r, pans
         across = "rechts"
         while True:
             while move(across):
-                done, sat = look()
-                if done:
-                    return collected, pans, sat
+                if (r := look()) is not None:
+                    return r, pans
             if not move("unten"):
-                raise StepFailed(f"Ganze Karte abgesucht ({pans}× gezogen), Anzeige immer noch farbig "
-                                 f"({collected} eingesammelt)")
-            done, sat = look()
-            if done:
-                return collected, pans, sat
+                return None, pans
+            if (r := look()) is not None:
+                return r, pans
             across = "links" if across == "rechts" else "rechts"
+
+    RELIC_INNER = 0.25      # Relikte weiter als dieser Anteil der Fenstergröße vom Rand zur Mitte ziehen
+
+    def _center_on(self, human, m):
+        """Liegt der Treffer nicht im mittleren Bereich des Fensters, die Karte so ziehen, dass er in
+        die Mitte kommt, und True zurückgeben. Am Rand liegen Bedienelemente des Spiels (Quests,
+        Herausforderung), ein Klick dort traf das Relikt nicht (Lauf 17.11. 15:41)."""
+        x, y, w, h = self._region()
+        cx, cy = m.x + m.w // 2, m.y + m.h // 2
+        mx, my = int(w * self.RELIC_INNER), int(h * self.RELIC_INNER)
+        if x + mx <= cx <= x + w - mx and y + my <= cy <= y + h - my:
+            return False
+        dx, dy = x + w // 2 - cx, y + h // 2 - cy
+        log.info("Relikt bei (%d, %d) liegt am Rand, Karte um (%d, %d) zur Mitte ziehen", cx, cy, dx, dy)
+        self._pan(human, dx, dy)
+        return True
+
+    def _search_relics(self, imgs, human, timeout, threshold, gs):
+        """Karte absuchen (_scan_map), bis die Anzeige grau ist. Gibt (eingesammelt, gezogen, sättigung)
+        zurück. Nach einem Relikt geht es an derselben Stelle weiter."""
+        collected = 0
+
+        def look():
+            """Sichtbare Relikte einsammeln. Sättigung, sobald die Anzeige grau ist, sonst None."""
+            nonlocal collected
+            centered = False
+            while relic := self._find_relic(imgs["relics"], threshold, gs):
+                if not centered and self._center_on(human, relic):
+                    centered = True         # einmal je Relikt; am Kartenrand kommt es evtl. nicht weiter
+                    continue
+                centered = False
+                human.click(*click_point(relic, human.cfg), target_size=min(relic.w, relic.h))
+                try:
+                    self._close_dialogs(imgs["ok"], human, timeout, threshold, gs, stop=imgs.get("next"))
+                except StepFailed:      # kein OK: Relikt noch nicht erreichbar
+                    raise RelicUnreachable(f"Relikt bei ({relic.x}, {relic.y}) nicht erreichbar, kein OK-Dialog "
+                                           f"({collected} eingesammelt)") from None
+                collected += 1
+                colored, sat = self._marker_colored(imgs["marker"], timeout, threshold)
+                if not colored:
+                    return sat
+            if self.matcher.find(imgs["done"], self._region(), threshold, grayscale=gs):
+                return self._marker_colored(imgs["marker"], timeout, threshold)[1]
+            return None
+
+        sat, pans = self._scan_map(human, look)
+        if sat is None:
+            raise StepFailed(f"Ganze Karte abgesucht ({pans}× gezogen), Anzeige immer noch farbig "
+                             f"({collected} eingesammelt)")
+        return collected, pans, sat
+
+    def _find_gray_bar(self, timeout):
+        """if_counter: grau. Die Leiste der eigenen Gilde ist als einzige neutral grau (andere Gilden
+        farbig). Gibt den Ausschnitt mit dem Zähler zurück, die erste Leiste, in der ein Zähler steht."""
+        end = time.perf_counter() + timeout
+        while True:
+            self.control.check()
+            region = self._region()
+            shot = screen.grab(region)
+            self._check_ends(region, shot)
+            for box in ocr.find_gray_bars(shot):
+                try:
+                    return ocr.gray_bar_counter(shot, box)
+                except ValueError:      # kein Text in der Leiste: kein Zähler
+                    continue
+            if time.perf_counter() >= end:
+                raise NotSeen("graue Leiste der eigenen Gilde nicht gefunden")
+            self.control.sleep(self.matching["poll_interval"])
 
     def _find_bar(self, names, timeout, threshold):
         """Leiste (Fortschrittsbalken) finden: Rahmen und Symbolfeld vergleichen, dann prüfen,
@@ -553,12 +669,22 @@ class Runner:
 
     HEADER_ROWS = {"army": 25, "pool": 40}   # fester oberer Teil der Bereichsbilder (Überschrift, Reiter)
 
-    def _find_panel(self, name, rows, timeout, threshold, gs):
-        """Bereich über seinen festen oberen Teil finden; gibt (x, y, w, h) auf dem Bildschirm zurück."""
-        tpl = self.matcher.template(name)
-        anchor = f"{name} [Kopf]"
-        self.matcher.register(anchor, tpl[:rows])
-        m = self._wait_image(anchor, timeout, threshold, grayscale=gs)
+    def _find_panel(self, names, rows, timeout, threshold, gs):
+        """Bereich über seinen festen oberen Teil finden; gibt (x, y, w, h) auf dem Bildschirm zurück.
+
+        names: ein Bild oder mehrere Varianten (gleiche Größe, andere Überschrift); die erste gefundene zählt.
+        """
+        names = [names] if isinstance(names, str) else names
+        cases = []
+        for name in names:
+            anchor = f"{name} [Kopf]"
+            self.matcher.register(anchor, self.matcher.template(name)[:rows])
+            cases.append({"if": anchor, "grayscale": None})
+        if len(cases) == 1:
+            m = self._wait_image(cases[0]["if"], timeout, threshold, grayscale=gs)
+        else:
+            _, m = self._wait_first(cases, timeout, threshold, grayscale=gs)
+        tpl = self.matcher.template(names[0])
         return m.x, m.y, tpl.shape[1], tpl.shape[0]
 
     def _settled_grab(self, region, timeout=1.5, gap=0.15):
@@ -607,71 +733,117 @@ class Runner:
             return text, opts["if_missing"]
         raise StepFailed(text[0].upper() + text[1:])
 
+    @staticmethod
+    def _plan_replacements(pool_img, needs):
+        """Jedem Bedarf (Liste möglicher Porträts) eine eigene gesunde Kachel im Pool zuordnen.
+
+        Gibt je Bedarf True/False zurück (Ersatz vorhanden oder nicht). Eine Einzelkachel wird nur
+        einmal vergeben, ein Stapel ("x46") beliebig oft.
+        """
+        tiles = [t for t in army.find_tiles(pool_img) if t.full]
+        used = set()
+        stacks = {k for k, t in enumerate(tiles) if army.stacked(pool_img, t)}
+        result = []
+        for portraits in needs:
+            best = None
+            for k, t in enumerate(tiles):
+                if k in used:
+                    continue
+                s = max(army.similarity(p, pool_img, t) for p in portraits)
+                if s >= army.SAME_UNIT and (best is None or s > best[1]):
+                    best = (k, s)
+            if best and best[0] not in stacks:
+                used.add(best[0])
+            result.append(best is not None)
+        return result
+
     def _replace_damaged(self, panels, opts, human, timeout, threshold, gs):
         """Leere Felder auffüllen und beschädigte Einheiten gegen gesunde derselben Art tauschen.
 
-        Die Plätze der Armee kommen aus dem Armee-Bild (feste Positionen im Bereich), so werden
-        auch Einheiten mit fast leerem Balken erkannt. Beim ersten fehlenden Ersatz endet der
-        Schritt (if_missing bzw. Fehler); herausgenommen wird nur, wenn vorher Ersatz gefunden wurde.
+        In zwei Durchgängen, damit die Maus nicht für jede Einheit zwischen Armee und Pool pendelt:
+        erst alle beschädigten Einheiten herausnehmen, für die es Ersatz gibt, dann alle leeren
+        Felder aus dem Pool füllen. Die Plätze der Armee kommen aus dem Armee-Bild (feste
+        Positionen im Bereich), so werden auch Einheiten mit fast leerem Balken erkannt.
+        Herausgenommen wird nur, wofür vorher Ersatz im Pool zugeordnet wurde. Fehlt Ersatz,
+        wird der Rest getauscht und danach if_missing ausgeführt (sonst Fehler).
         """
         reg_a = self._find_panel(panels["army"], self.HEADER_ROWS["army"], timeout, threshold, gs)
         reg_p = self._find_panel(panels["pool"], self.HEADER_ROWS["pool"], timeout, threshold, gs)
-        slots = army.find_tiles(self.matcher.template(panels["army"]))
+        slots = army.find_tiles(self.matcher.template(panels["army"][0]))   # Raster aus der ersten Variante
         empty_tpl = self.matcher.template(panels["empty"]) if panels.get("empty") else None
         states = lambda img: [army.slot_state(img, t, empty_tpl) for t in slots]
         n_empty = lambda: states(screen.grab(reg_a)).count("empty")
-        replaced = filled = 0
-        summary = lambda: f"{filled} leere Felder gefüllt, {replaced} ersetzt"
 
-        for _ in range(2 * len(slots) + 2):     # Schutz gegen Endlosschleife
-            img_a = screen.grab(reg_a)
-            st = states(img_a)
-            empty = st.count("empty")
+        img_a = screen.grab(reg_a)
+        st = states(img_a)
+        if "damaged" not in st and "empty" not in st:
+            return f"0 leere Felder gefüllt, 0 ersetzt, alle {len(slots)} Einheiten voll"
+        portrait = lambda i: army.crop(img_a, slots[i].portrait_box)
+        present = [portrait(i) for i, s in enumerate(st) if s != "empty"]
+        bad = [i for i, s in enumerate(st) if s == "damaged"]
+        empty0 = st.count("empty")
+        if not present:
+            return self._missing(opts, "keine Einheit in der Armee, leere Felder lassen sich nicht zuordnen")
 
-            # leere Felder nur auffüllen, mit einer Einheit, deren Art schon in der Armee steht
-            if empty:
-                portraits = [army.crop(img_a, t.portrait_box) for t, s in zip(slots, st) if s != "empty"]
-                best = self._best_replacement(screen.grab(reg_p), portraits) if portraits else None
-                if best is None:
-                    return self._missing(opts, f"keine gesunde Einheit für ein leeres Feld ({summary()})")
-                self._click_tile(human, reg_p, best[0])
-                if not self._poll(lambda: n_empty() == empty - 1):
-                    raise StepFailed("Einheit wurde nicht in das leere Feld übernommen")
-                filled += 1
-                log.info("Leeres Feld gefüllt (Ähnlichkeit %.2f)", best[1])
-                human.think()
-                continue
+        # Vorab planen: beschädigte zuerst (nur gleiche Art), leere Felder mit einer Art aus der Armee
+        ok = self._plan_replacements(screen.grab(reg_p), [[portrait(i)] for i in bad] + [present] * empty0)
+        swap = [i for i, k in zip(bad, ok) if k]
+        fill_ok = sum(ok[len(bad):])
+        missing = [i + 1 for i, k in zip(bad, ok) if not k]
 
-            if "damaged" not in st:
-                return f"{summary()}, alle {len(slots)} Einheiten voll"
-            slot = st.index("damaged")
-            tile = slots[slot]
-            portrait = [army.crop(img_a, tile.portrait_box)]
-            if self._best_replacement(screen.grab(reg_p), portrait) is None:
-                return self._missing(opts, f"kein gesunder Ersatz für die Einheit bei Platz {slot + 1} ({summary()})")
-
-            damaged = st.count("damaged")
-            self._click_tile(human, reg_a, tile)                     # herausnehmen
-            if not self._poll(lambda: n_empty() == 1):
-                raise StepFailed(f"Einheit bei Platz {slot + 1} wurde nicht herausgenommen")
-            # Pool hat sich verändert (die herausgenommene Einheit kommt dazu): erst wählen, wenn er ruhig ist
-            best = self._best_replacement(self._settled_grab(reg_p), portrait)
-            if best is None:
-                return self._missing(opts, f"Ersatz für Platz {slot + 1} nach dem Herausnehmen nicht mehr gefunden "
-                                           f"({summary()})")
+        # 1. Durchgang: beschädigte herausnehmen. Die Einheiten dahinter rücken jeweils einen Platz
+        # nach vorn, darum vor jedem Klick neu lesen und die nächste passende beschädigte Einheit
+        # dort nehmen, wo sie gerade steht (gleiche Art wie eine der geplanten)
+        todo = [portrait(i) for i in swap]
+        removed = []
+        while todo:
+            cur = self._settled_grab(reg_a, gap=0.1)     # Nachrücken ist animiert
+            st_cur = states(cur)
+            pick = next(((j, k) for j, s in enumerate(st_cur) if s == "damaged"
+                         for k, p in enumerate(todo) if army.similarity(p, cur, slots[j]) >= army.SAME_UNIT), None)
+            if pick is None:
+                raise StepFailed(f"Beschädigte Einheit zum Herausnehmen nicht mehr gefunden "
+                                 f"({len(removed)} von {len(swap)} herausgenommen)", reg_a)
+            j, k = pick
+            before = st_cur.count("empty")
+            self._click_tile(human, reg_a, slots[j])
+            if not self._poll(lambda: n_empty() == before + 1):
+                raise StepFailed(f"Einheit bei Platz {j + 1} wurde nicht herausgenommen")
+            removed.append(todo.pop(k))
             human.think()
-            self._click_tile(human, reg_p, best[0])                  # einsetzen
-            if not self._poll(lambda: n_empty() == 0):
-                raise StepFailed("Ersatz-Einheit wurde nicht in die Armee übernommen")
-            replaced += 1
-            log.info("Einheit bei Platz %d ersetzt (Ähnlichkeit %.2f)", slot + 1, best[1])
-            after = states(self._settled_grab(reg_a))
-            if after.count("damaged") >= damaged:   # Ersatz war selbst verwundet: nicht endlos weitertauschen
-                bad = [i + 1 for i, s in enumerate(after) if s == "damaged"]
-                raise StepFailed(f"Nach dem Ersetzen von Platz {slot + 1} sind immer noch {len(bad)} Einheiten "
-                                 f"beschädigt (Plätze {', '.join(map(str, bad))}); der Ersatz war wohl selbst "
-                                 f"verwundet, breche ab ({summary()})", reg_a)
-        raise StepFailed(f"Nach {replaced} Tauschvorgängen immer noch beschädigte Einheiten, breche ab")
+
+        # 2. Durchgang: leere Felder füllen; zuerst Ersatz für die herausgenommenen (gleiche Art)
+        needs = [[p] for p in removed] + [present] * fill_ok
+        filled = replaced = 0
+        for k, need in enumerate(needs):
+            # Pool verändert sich (herausgenommene Einheiten kommen dazu, eingesetzte verschwinden)
+            best = self._best_replacement(self._settled_grab(reg_p, gap=0.1), need)
+            if best is None:
+                return self._missing(opts, f"Ersatz im Pool nicht mehr gefunden ({filled} leere Felder gefüllt, "
+                                           f"{replaced} ersetzt)")
+            before = n_empty()
+            self._click_tile(human, reg_p, best[0])
+            if not self._poll(lambda: n_empty() == before - 1):
+                raise StepFailed("Einheit aus dem Pool wurde nicht in die Armee übernommen")
+            if k < len(removed):
+                replaced += 1
+            else:
+                filled += 1
+            human.think()
+        log.info("Einheiten getauscht: %d herausgenommen, %d eingesetzt", len(removed), len(needs))
+        summary = f"{filled} leere Felder gefüllt, {replaced} ersetzt"
+
+        after = states(self._settled_grab(reg_a, gap=0.1))
+        if missing:
+            return self._missing(opts, f"kein gesunder Ersatz für Platz {', '.join(map(str, missing))} ({summary})")
+        if fill_ok < empty0 or "empty" in after:
+            return self._missing(opts, f"keine gesunde Einheit für ein leeres Feld ({summary})")
+        if "damaged" in after:          # Ersatz war selbst verwundet: nicht endlos weitertauschen
+            still = [i + 1 for i, s in enumerate(after) if s == "damaged"]
+            raise StepFailed(f"Nach dem Tauschen sind immer noch {len(still)} Einheiten beschädigt "
+                             f"(Plätze {', '.join(map(str, still))}); der Ersatz war wohl selbst "
+                             f"verwundet, breche ab ({summary})", reg_a)
+        return f"{summary}, alle {len(slots)} Einheiten voll"
 
     # ------------------------------------------------------------ Verhandlung
 
@@ -896,8 +1068,8 @@ class Runner:
         """
         threshold = float(rep["threshold"] or self.matching["threshold"])
         token = object()
-        if rep["until"]:
-            self._ends.append((token, dict(name=rep["until"], threshold=threshold, grayscale=rep["grayscale"])))
+        for name in rep["until"]:
+            self._ends.append((token, dict(name=name, threshold=threshold, grayscale=rep["grayscale"])))
         max_rounds = rep["max"]
         if isinstance(max_rounds, str):
             max_rounds = self.params[max_rounds[1:]]    # gewählte Einstellung, z. B. $durchlaeufe

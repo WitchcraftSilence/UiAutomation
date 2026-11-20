@@ -17,22 +17,26 @@ steps:
       while:
         - GG/GG1 Angriff A.png
         - GG/GG1 Verteidigung A.png
-      until: GG/GG Niederlage.png
+      until: Gemeinsam/GG Niederlage.png
     steps:                      # gleiche Höhe wie "repeat:"
       - press: a
-      - wait_for: GG/GG2 Ersetzen R.png
+      - wait_for: Gemeinsam/EinheitenErsetzen R.png
       - press: r
       - press: b                # Kampfrunde 1
-      - expect_not: GG/GG Auto 1 B.png   # erst weiter, wenn der Dialog zu ist: "Auto 2" sieht ihm sehr ähnlich (0,93)
-        think: 0
+      - expect_not: Gemeinsam/EinheitenErsetzen R.png   # erst weiter, wenn der Armee-Dialog zu ist (der Knopf steht nur dort;
+        think: 0                                        # Auto-Kampf steht auch im Dialog der zweiten Welle)
       - first_seen:             # nach Runde 1 kommt entweder das Ergebnis oder Kampfrunde 2
-          - if: GG/GG OK ESC.png   # fertig nach einer Runde
+          - if: Gemeinsam/OK ESC.png   # fertig nach einer Runde
             then:
               - press: esc
-          - if: GG/GG Auto 2 B.png # es gibt eine zweite Runde
+          - if: Gemeinsam/AutoKampf B.png # es gibt eine zweite Runde
             then:
               - press: b        # Kampfrunde 2
-              - wait_for: GG/GG OK ESC.png
+              - if_seen: Gemeinsam/AutoKampf B.png   # Taste manchmal verschluckt: Dialog noch da, nochmal b
+                timeout: 0.5
+                then:
+                  - press: b
+              - wait_for: Gemeinsam/OK ESC.png
                 timeout: 30     # Kampf kann dauern
                 check_end: true # derselbe OK-Knopf steht im Niederlage-Dialog
               - press: esc

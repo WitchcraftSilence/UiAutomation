@@ -10,10 +10,19 @@ human:
 
 repeat:
   while: Gex/Gex1 Pfeil.png         # Gex/Gex End.png wird erst am Ende jeder Runde geprüft, nach der Belohnungskiste
+  until: Gex/Gex Expedition fertig.png   # alle Schwierigkeitsgrade gelöst: Dialog "Bevorstehende Gilden-Expedition", Ablauf endet
   timeout: 5
   # max: 50                     # optional: höchstens so viele Runden
 
 steps:
+  - if_seen: Gemeinsam/OK Braun ESC.png   # verspäteter Belohnungsdialog aus der letzten Runde (der Pfeil ist dahinter
+    timeout: 0.3                          # noch zu sehen): erst schließen, sonst trifft der Klick unter den Pfeil den Dialog
+    then:
+      - click: Gemeinsam/OK Braun ESC.png
+        think: 0
+        check_end: true         # Abschlussdialog nicht schließen (Expedition fertig)
+      - expect_not: Gemeinsam/OK Braun ESC.png
+        timeout: 2
   - click: Gex/Gex1 Pfeil.png     # Kampf
     offset: [0, 4.2h]           # 1,5 × Bildhöhe unterhalb der Bildmitte
     note: unter dem Pfeil
@@ -41,7 +50,7 @@ steps:
             timeout: 5
     timeout: 5
   - first_seen:                 # Sieg oder Niederlage, ohne auf das jeweils andere zu warten
-      - if: Gex/Gex Niederlage.png
+      - if: Gemeinsam/GG Niederlage.png
         then:
           - press: esc
           - end: Niederlage     # Ablauf sofort beenden, der Text erscheint im Bericht
@@ -53,84 +62,77 @@ steps:
     offset: [0, 4.2h]           # 1,5 × Bildhöhe unterhalb der Bildmitte
     note: unter dem Pfeil
   - repeat:                      # Belohnungsdialoge schließen, manchmal kommen zwei nacheinander
-      while: Gemeinsam/pvp5 Optional ESC.png
+      while: Gemeinsam/OK Braun ESC.png
       until: Gex/GEX PlayNextLevel.png    # Abschlussdialog hat auch OK: nicht schließen, collect_relics klickt "Jetzt spielen"
       timeout: 1.0              # Dialog kommt nach etwa 0,5 s
       max: 8                      # je Dialog bis zu 2 Runden (eine davon sieht den schließenden)
     steps:
       - wait: [0.4, 0.6]        # Dialog fertig eingeblendet, ein schließender ist weg
-      - if_seen: Gemeinsam/pvp5 Optional ESC.png  # noch da? (der schließende war eben noch kurz zu sehen)
+      - if_seen: Gemeinsam/OK Braun ESC.png  # noch da? (der schließende war eben noch kurz zu sehen)
         timeout: 0.3
         then:
-          - click: Gemeinsam/pvp5 Optional ESC.png   # ESC wird hier regelmäßig verschluckt, Klick wirkt sofort
+          - click: Gemeinsam/OK Braun ESC.png   # ESC wird hier regelmäßig verschluckt, Klick wirkt sofort
             think: 0
             check_end: true     # vor dem Klick nach "Jetzt spielen" sehen (until)
   - wait: [0.3, 0.5]            # Relikt erscheint erst nach dem Öffnen der Kiste
-  - first_seen:                 # nach dem Öffnen der Kiste: Relikt einsammeln, falls eines liegt
-      - if: Gex/GEX Next Level.png  # Level fertig (Dialog verdeckt die Karte): im nächsten Schritt
-      - if: Gex/GEX Relikt Gold.png
-        then:
-          - click: Gex/GEX Relikt Gold.png
-          - if_seen: Gex/GEX Relik OK ESC.png     # Abholen quittieren; kommt nichts, ist das Relikt noch nicht erreichbar
-            timeout: 1.0                      # sonst kommt der Dialog nach etwa 0,3 s
-            then:
-              - repeat:                       # OK, solange Dialoge kommen (nach dem Relikt manchmal noch eine Belohnung)
-                  while: Gex/GEX Relik OK ESC.png
-                  until: Gex/GEX PlayNextLevel.png    # Abschlussdialog hat auch OK: nicht schließen, collect_relics klickt "Jetzt spielen"
-                  timeout: 1
-                  max: 8                      # je Dialog bis zu 2 Runden (eine davon sieht den schließenden)
-                steps:
-                  - wait: [0.4, 0.6]          # Dialog fertig eingeblendet, ein schließender ist weg
-                  - if_seen: Gex/GEX Relik OK ESC.png   # noch da? (der schließende war eben noch kurz zu sehen)
-                    timeout: 0.3
+
+  # Nach dem Öffnen der Kiste: Relikt einsammeln, falls eines liegt.
+  # Die Relikt-Fälle stehen einmal hier mit Anker (&name) und werden im ersten Schritt
+  # mit *name wiederverwendet (YAML-Anker, kein eigener Schritt).
+  - first_seen:
+      - &next_level
+        if: Gex/GEX Next Level.png  # Level fertig (Dialog verdeckt die Karte): im nächsten Schritt
+      - if: Gemeinsam/OK Braun ESC.png   # verspäteter Belohnungsdialog (z. B. beim letzten Fragment, kommt erst nach
+        then:                            # 2-3 s): erst schließen, dann nach Relikten sehen. Muss vor dem Pfeil
+          - &ok_schliessen               # stehen, der ist hinter dem Dialog noch zu sehen (0,9)
+            repeat:                      # OK, solange Dialoge kommen
+              while: Gemeinsam/OK Braun ESC.png
+              until: Gex/GEX PlayNextLevel.png    # Abschlussdialog hat auch OK: nicht schließen, collect_relics klickt "Jetzt spielen"
+              timeout: 1
+              max: 8                      # je Dialog bis zu 2 Runden (eine davon sieht den schließenden)
+            steps:
+              - wait: [0.4, 0.6]          # Dialog fertig eingeblendet, ein schließender ist weg
+              - if_seen: Gemeinsam/OK Braun ESC.png   # noch da? (der schließende war eben noch kurz zu sehen)
+                timeout: 0.3
+                then:
+                  - click: Gemeinsam/OK Braun ESC.png   # Klick statt ESC, ESC wird oft verschluckt
+                    think: 0
+                    check_end: true       # vor dem Klick nach "Jetzt spielen" sehen (until)
+          - first_seen:                  # danach wie unten: Relikt einsammeln, falls eines liegt
+              - *next_level
+              - &relikt_gold
+                if: Gex/GEX Relikt Gold.png
+                then:
+                  - click: Gex/GEX Relikt Gold.png
+                  - &relikt_quittieren
+                    if_seen: Gemeinsam/OK Braun ESC.png     # Abholen quittieren; kommt nichts, ist das Relikt noch nicht erreichbar
+                    timeout: 1.0                      # sonst kommt der Dialog nach etwa 0,3 s
                     then:
-                      - click: Gex/GEX Relik OK ESC.png   # Klick statt ESC, ESC wird oft verschluckt
-                        think: 0
-                        check_end: true       # vor dem Klick nach "Jetzt spielen" sehen (until)
-      - if: Gex/GEX Relikt Silber.png
-        then:
-          - click: Gex/GEX Relikt Silber.png
-          - if_seen: Gex/GEX Relik OK ESC.png     # Abholen quittieren; kommt nichts, ist das Relikt noch nicht erreichbar
-            timeout: 1.0                      # sonst kommt der Dialog nach etwa 0,3 s
-            then:
-              - repeat:                       # OK, solange Dialoge kommen (nach dem Relikt manchmal noch eine Belohnung)
-                  while: Gex/GEX Relik OK ESC.png
-                  until: Gex/GEX PlayNextLevel.png    # Abschlussdialog hat auch OK: nicht schließen, collect_relics klickt "Jetzt spielen"
-                  timeout: 1
-                  max: 8                      # je Dialog bis zu 2 Runden (eine davon sieht den schließenden)
-                steps:
-                  - wait: [0.4, 0.6]          # Dialog fertig eingeblendet, ein schließender ist weg
-                  - if_seen: Gex/GEX Relik OK ESC.png   # noch da? (der schließende war eben noch kurz zu sehen)
-                    timeout: 0.3
-                    then:
-                      - click: Gex/GEX Relik OK ESC.png   # Klick statt ESC, ESC wird oft verschluckt
-                        think: 0
-                        check_end: true       # vor dem Klick nach "Jetzt spielen" sehen (until)
-      - if: Gex/GEX Relikt Jade.png
-        then:
-          - click: Gex/GEX Relikt Jade.png
-          - if_seen: Gex/GEX Relik OK ESC.png     # Abholen quittieren; kommt nichts, ist das Relikt noch nicht erreichbar
-            timeout: 1.0                      # sonst kommt der Dialog nach etwa 0,3 s
-            then:
-              - repeat:                       # OK, solange Dialoge kommen (nach dem Relikt manchmal noch eine Belohnung)
-                  while: Gex/GEX Relik OK ESC.png
-                  until: Gex/GEX PlayNextLevel.png    # Abschlussdialog hat auch OK: nicht schließen, collect_relics klickt "Jetzt spielen"
-                  timeout: 1
-                  max: 8                      # je Dialog bis zu 2 Runden (eine davon sieht den schließenden)
-                steps:
-                  - wait: [0.4, 0.6]          # Dialog fertig eingeblendet, ein schließender ist weg
-                  - if_seen: Gex/GEX Relik OK ESC.png   # noch da? (der schließende war eben noch kurz zu sehen)
-                    timeout: 0.3
-                    then:
-                      - click: Gex/GEX Relik OK ESC.png   # Klick statt ESC, ESC wird oft verschluckt
-                        think: 0
-                        check_end: true       # vor dem Klick nach "Jetzt spielen" sehen (until)
-      - if: Gex/Gex1 Pfeil.png      # Karte ist da, aber kein Relikt: nichts tun
-      - if: Gex/GEX ReliktVorhanden.png   # immer sichtbar: kein Pfeil und kein Relikt in Sicht, Level fertig, im nächsten Schritt
+                      - *ok_schliessen                # nach dem Relikt kommt manchmal noch eine Belohnung
+              - &relikt_silber
+                if: Gex/GEX Relikt Silber.png
+                then:
+                  - click: Gex/GEX Relikt Silber.png
+                  - *relikt_quittieren
+              - &relikt_jade
+                if: Gex/GEX Relikt Jade.png
+                then:
+                  - click: Gex/GEX Relikt Jade.png
+                  - *relikt_quittieren
+              - &kein_relikt
+                if: Gex/Gex1 Pfeil.png      # Karte ist da, aber kein Relikt: nichts tun
+              - &level_fertig
+                if: Gex/GEX ReliktVorhanden.png   # immer sichtbar: kein Pfeil und kein Relikt in Sicht, Level fertig, im nächsten Schritt
+            timeout: 5
+      - *relikt_gold
+      - *relikt_silber
+      - *relikt_jade
+      - *kein_relikt
+      - *level_fertig
     timeout: 5
   - collect_relics:             # Level fertig: restliche Relikte auf der Karte suchen, dann "Jetzt spielen"
       relics: [Gex/GEX Relikt Gold.png, Gex/GEX Relikt Silber.png, Gex/GEX Relikt Jade.png]
-      ok: Gex/GEX Relik OK ESC.png
+      ok: Gemeinsam/OK Braun ESC.png
       marker: Gex/GEX ReliktVorhanden.png   # immer sichtbar: farbig = noch Relikte auf der Karte, grau = keine
       done: Gex/GEX Next Level.png          # Abschlussdialog, kommt bei übrigen Relikten manchmal gar nicht
       next: Gex/GEX PlayNextLevel.png       # "Jetzt spielen"

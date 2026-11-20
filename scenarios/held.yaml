@@ -9,34 +9,68 @@ human:
 
 
 steps:
+- click: Held/Heldentaverne.png   # Gebäude in der Stadt: öffnet den Heldendialog
+- first_seen:                 # warten, bis der Dialog offen ist (die Schleifen warten nur 2 s)
+    - if: Held/Held1 A.png
+    - if: Held/Held5 V.png
+    - if: Held/Gesammelt.png
+    - if: Held/Einsammeln.png
+      grayscale: false
+  timeout: 5
 - repeat:                     # Schleife 1
-    while: Held/Held1 A.png
-    until: Held/Held Niederlage.png
+    while: Held/Held1 A.png       # steht dort "Gesammelt", fehlt das Bild: Schleife endet nach timeout
+    until: Gemeinsam/GG Niederlage.png
+    timeout: 2                  # nicht als until: "Gesammelt" steht auch beim Verteidigen-Knopf
   steps:                      # gleiche Höhe wie "repeat:"
     - click: Held/Held1 A.png
       grayscale: false            # nicht mit dem grauen End-Screen verwechseln
-    - wait_for: Held/Held2 Ersetzen R.png
+    - wait_for: Gemeinsam/EinheitenErsetzen R.png
     - press: r
     - press: b
-    - wait_for: Held/Held4 OK ESC.png
+    - wait_for: Gemeinsam/OK ESC.png
       check_end: true             # derselbe OK-Knopf steht im Niederlage-Dialog
     - press: esc
       timeout: 0.5
-- if_seen: Held/Held Niederlage.png  # endete Schleife 1 mit einer Niederlage, erst den Dialog schließen
+- if_seen: Gemeinsam/GG Niederlage.png  # endete Schleife 1 mit einer Niederlage, erst den Dialog schließen
   timeout: 0.5
   then:
     - press: esc
-    - expect_not: Held/Held Niederlage.png
+    - expect_not: Gemeinsam/GG Niederlage.png
 - repeat:                     # Schleife 2, startet nach Schleife 1
-    while: Held/Held5 V.png
-    until: Held/Held Niederlage.png
+    while: Held/Held5 V.png       # steht dort "Gesammelt", fehlt das Bild: weiter zum Einsammeln
+    until: Gemeinsam/GG Niederlage.png
+    timeout: 2
   steps:
     - click: Held/Held5 V.png
       grayscale: false            # nicht mit dem grauen End-Screen verwechseln
-    - wait_for: Held/Held6 Ersetzen R.png
+    - wait_for: Gemeinsam/EinheitenErsetzen R.png
     - press: r
     - press: b
-    - wait_for: Held/Held8 OK ESC.png
+    - wait_for: Gemeinsam/OK ESC.png
       check_end: true             # derselbe OK-Knopf steht im Niederlage-Dialog
     - press: esc
       timeout: 0.5
+- if_seen: Gemeinsam/GG Niederlage.png  # endete Schleife 2 mit einer Niederlage, erst den Dialog schließen
+  timeout: 0.5
+  then:
+    - press: esc
+    - expect_not: Gemeinsam/GG Niederlage.png
+- repeat:                     # Schleife 3: Hilfe-Belohnungen einsammeln, solange der Knopf da ist
+    while: Held/Einsammeln.png
+    grayscale: false            # farbig vergleichen (grüner Knopf)
+    timeout: 2                  # so lange nach dem letzten Dialog auf einen weiteren Knopf warten
+  steps:
+    - click: Held/Einsammeln.png
+      grayscale: false
+    - wait_for: Gemeinsam/OK Braun ESC.png
+    - repeat:                 # zwei OK-Dialoge nacheinander, jeden schließen
+        while: Gemeinsam/OK Braun ESC.png
+        timeout: 1.5            # so lange auf den nächsten Dialog warten
+        max: 6
+      steps:
+        - wait: [0.4, 0.6]      # Dialog fertig eingeblendet, ein schließender ist weg
+        - if_seen: Gemeinsam/OK Braun ESC.png   # noch da? (der schließende war eben noch kurz zu sehen)
+          timeout: 0.3
+          then:
+            - press: esc
+              think: 0

@@ -31,11 +31,12 @@ ACTIONS = {
     "scroll": False,
     "wait": False,
     "end": False,           # beendet den Ablauf sofort erfolgreich; Wert = optionaler Grund
+    "move_by": False,       # [dx, dy]: Maus von der aktuellen Stelle wegbewegen, z. B. damit ein Tooltip verschwindet
     "click_here": False,    # so oft schnell dort klicken, wo die Maus steht (0 = bis Stopp)
     "repeat": False,        # verschachtelte Schleife: Wert wie repeat der Sequenz, Schritte unter 'steps'
 }
 OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if", "steps", "think",
-           "when", "if_missing", "check_end"}
+           "when", "if_missing", "check_end", "pick"}
 
 
 class ScenarioError(Exception):
@@ -54,11 +55,11 @@ class Step:
         elif self.action == "repeat":
             text = "repeat while: " + " | ".join(self.value["while"])
             if self.value["until"]:
-                text += f" until: {self.value['until']}"
+                text += f" until: {' | '.join(self.value['until'])}"
         elif self.action == "if_counter":
             text = "if_counter: " + " | ".join(self.value)
         elif self.action == "replace_damaged":
-            text = f"replace_damaged: {self.value['army']} ← {self.value['pool']}"
+            text = f"replace_damaged: {' | '.join(self.value['army'])} ← {self.value['pool']}"
         elif self.action == "negotiate":
             text = f"negotiate: {self.value['suggestions']}"
         elif self.action == "drag_over":
@@ -128,6 +129,9 @@ def _parse_step(raw, where, images_dir):
     if action == "wait" and not (isinstance(value, (int, float))
                                  or (isinstance(value, list) and len(value) == 2)):
         raise ScenarioError(f"{where}: wait erwartet Sekunden oder [min, max]")
+    if action == "move_by" and not (isinstance(value, list) and len(value) == 2
+                                    and all(isinstance(n, int) and not isinstance(n, bool) for n in value)):
+        raise ScenarioError(f"{where}: move_by erwartet [dx, dy] in Pixeln, z. B. move_by: [0, 200]")
     if action == "click_here" and not (_is_param_ref(value)
                                        or isinstance(value, int) and not isinstance(value, bool) and value >= 0):
         raise ScenarioError(f"{where}: click_here erwartet die Anzahl Klicks (0 = bis Stopp) oder $einstellung")
@@ -151,7 +155,7 @@ def _parse_step(raw, where, images_dir):
         except (ValueError, SyntaxError) as e:
             raise ScenarioError(f"{where}: when erwartet eine Bedingung wie 'x >= total - 2' ({e})") from None
         value = [str(v) for v in value] if isinstance(value, list) else [str(value)]
-        for img in value:
+        for img in ([] if value == [ocr.GRAY_BAR] else value):   # grau: Leiste über ihre Farbe, ohne Bild
             if not (images_dir / img).exists():
                 raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
             try:
@@ -174,10 +178,15 @@ def _parse_step(raw, where, images_dir):
         if not isinstance(value, dict) or not {"army", "pool"} <= set(value) <= {"army", "pool", "empty"}:
             raise ScenarioError(f"{where}: replace_damaged erwartet 'army: bild.png', 'pool: bild.png' "
                                 f"und optional 'empty: bild.png' (leeres Feld)")
-        for img in value.values():
-            if not (images_dir / str(img)).exists():
-                raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(img)}")
-        value = {k: str(v) for k, v in value.items()}
+        # army: ein Bild oder eine Liste (gleiches Raster, andere Überschrift, z. B. Angriff/Verteidigung)
+        value = {k: ([str(i) for i in v] if k == "army" and isinstance(v, list) else str(v)) for k, v in value.items()}
+        if isinstance(value["army"], str):
+            value["army"] = [value["army"]]
+        if not value["army"]:
+            raise ScenarioError(f"{where}: army erwartet ein Bild oder eine Liste von Bildern")
+        for img in value["army"] + [v for k, v in value.items() if k != "army"]:
+            if not (images_dir / img).exists():
+                raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
         if "if_missing" in options:
             if not isinstance(options["if_missing"], list) or not options["if_missing"]:
                 raise ScenarioError(f"{where}: if_missing erwartet eine Liste von Schritten")
@@ -225,6 +234,11 @@ def _parse_step(raw, where, images_dir):
         raise ScenarioError(f"{where}: 'skip_if' gibt es nur bei if_seen")
     if action not in ("click", "double_click", "right_click", "move", "wait_for", "expect") and "check_end" in options:
         raise ScenarioError(f"{where}: 'check_end' gibt es nur bei click, move, wait_for und expect")
+    if "pick" in options:
+        if action not in ("click", "double_click", "right_click", "move"):
+            raise ScenarioError(f"{where}: 'pick' gibt es nur bei click und move")
+        if options["pick"] not in ("links", "rechts", "oben", "unten"):
+            raise ScenarioError(f"{where}: 'pick' muss links, rechts, oben oder unten sein")
     return Step(action, value, options)
 
 
@@ -284,8 +298,10 @@ def _parse_repeat(raw, where, images_dir):
     images = [str(i) for i in images]
     if not images:
         raise ScenarioError(f"{where}: while erwartet ein Bild oder eine Liste von Bildern")
-    until = str(raw["until"]) if raw.get("until") else None
-    for img in images + ([until] if until else []):
+    # until: ebenso ein Bild oder eine Liste; eines davon beendet die Schleife
+    until = raw.get("until") or []
+    until = [str(i) for i in (until if isinstance(until, list) else [until])]
+    for img in images + until:
         if not (images_dir / img).exists():
             raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / img}")
     max_rounds = raw.get("max", 0)

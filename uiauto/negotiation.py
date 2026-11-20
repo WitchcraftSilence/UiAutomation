@@ -13,6 +13,7 @@ import numpy as np
 
 PERSONS = 5
 DARK = 60               # Summe B+G+R, unter der ein Pixel zum schwarzen Kreis gehört
+DARK_LOOSE = 75         # Nachsuche für Personen ohne Treffer: der Kreis selbst hat etwa 65
 ICON_H = (38, 64)       # Höhe eines Kreises (mit Abzeichen) in px
 ICON_D = 40             # Mindest-Kantenlänge; ist der Kreis oben vom Gut verdeckt, wird von unten mindestens so hoch geschnitten
 MIN_DARK_PX = 30        # so viele schwarze Pixel braucht eine Spalte für ein Symbol
@@ -80,12 +81,36 @@ def current_icons(img):
     """Symbole der aktuellen (untersten) Vorschlagszeile. img = Bereich unter der Kopfzeile,
     so breit wie die Kopfzeile. Personen ohne Symbol fehlen in der Liste (schon richtig)."""
     img = img[:table_bottom(img)]
-    h, w = img.shape[:2]
-    dark = img.astype(int).sum(2) < DARK
+    sums = img.astype(int).sum(2)
+    found = _row(_dark_icons(sums, DARK))
+    # Der Kreis selbst liegt knapp über DARK (Summe etwa 65), erkannt wird er meist über die
+    # dunkleren Schatten im Gut. Verdeckt ein Gut den Kreis fast ganz (oranges Gut, 18.11.),
+    # fehlt die Person. Darum fehlende Personen mit DARK_LOOSE nachsuchen, Ausschnitt aber
+    # weiter aus der strengen Erkennung: Der lockere Kreis ist größer und senkt die Menü-Scores.
+    have = {f[0] for f in found}
+    loose = [f for f in _row(_dark_icons(sums, DARK_LOOSE)) if f[0] not in have]
+    if found:
+        bottom = max(f[2] for f in found)
+        loose = [f for f in loose if abs(bottom - f[2]) <= SAME_ROW]
+    if not found and not loose:
+        return []
+    # Kantenlänge aus der ganzen Zeile (Median), nicht fest: hängt vom Browser-Zoom ab
+    # (100 %: etwa 42 px, 110 %: etwa 48 px). Einzelne Güter verdecken den Kreis oben oder
+    # ragen darüber hinaus; die Unterkante (Abzeichen) ist verlässlicher als die Oberkante.
+    d = max(int(np.median([f[3] for f in (found or loose)])), ICON_D)
+    if found:   # Unterkante der lockeren Treffer an die strenge Zeile angleichen
+        loose = [(p, x, bottom, h) for p, x, _, h in loose]
+    return [Icon(p, x, max(0, y1 - d + 1), d) for p, x, y1, _ in sorted(found + loose)]
+
+
+def _dark_icons(sums, limit):
+    """Kreise je Personenspalte bei Summe B+G+R < limit: Liste (person, x, Unterkante, Höhe)."""
+    w = sums.shape[1]
+    dark = sums < limit
     # Durchgehend dunkle Spalten sind Fensterränder (liegt der Assistent 1 px anders, ragt sein
     # rechter Rand in die Spalte von Person 5 und macht das Symbol dort zu hoch), nie ein Symbol
     dark[:, dark.mean(0) > BORDER] = False
-    found = []      # (person, x, Unterkante, Höhe)
+    found = []
     for p in range(PERSONS):
         x0, x1 = p * w // PERSONS, (p + 1) * w // PERSONS
         col = dark[:, x0:x1]
@@ -93,15 +118,15 @@ def current_icons(img):
             if ICON_H[0] <= y1 - y0 + 1 <= ICON_H[1] and col[y0:y1 + 1].sum() >= MIN_DARK_PX:
                 xs = np.nonzero(col[y0:y1 + 1].any(0))[0]
                 found.append((p + 1, x0 + int(xs[0]), int(y1), int(y1 - y0 + 1)))
+    return found
+
+
+def _row(found):
+    """Nur die unterste Zeile (aktuelle Vorschläge) behalten."""
     if not found:
         return []
     bottom = max(f[2] for f in found)
-    found = [f for f in found if bottom - f[2] <= SAME_ROW]
-    # Kantenlänge aus der ganzen Zeile (Median), nicht fest: hängt vom Browser-Zoom ab
-    # (100 %: etwa 42 px, 110 %: etwa 48 px). Einzelne Güter verdecken den Kreis oben oder
-    # ragen darüber hinaus; die Unterkante (Abzeichen) ist verlässlicher als die Oberkante.
-    d = max(int(np.median([f[3] for f in found])), ICON_D)
-    return [Icon(p, x, max(0, y1 - d + 1), d) for p, x, y1, _ in found]
+    return [f for f in found if bottom - f[2] <= SAME_ROW]
 
 
 def icon_mask(crop):

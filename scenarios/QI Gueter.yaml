@@ -1,7 +1,7 @@
 name: QI Güter
 hotkey: ctrl+alt+0
 
-# Güter produzieren: Bild 1 → rechter Knopf "Produzieren" in Bild 3a → Gut einsammeln, so oft wie im Steuerfenster gewählt
+# Güter produzieren: Bild 1 → rechter von vier Knöpfen "Produzieren" (Bild 2) → Gut einsammeln, so oft wie im Steuerfenster gewählt
 human:
   think_time: [0.05, 0.12]    # eingeübter Ablauf, kaum Nachdenken
   move_speed: 1.2
@@ -12,40 +12,51 @@ params:
     options: [2, 4, 6, 9, 12, 20]
     default: 2
 
+# Tooltips vermeiden: Nach dem Einsammeln geht die Maus kurz vom Gebäude weg. Dann ist Bild 1
+# (Mond mit "zz") frei zu sehen, zeigt, wo das Gebäude ist, und wird direkt angeklickt.
+# Auf dem Gebäude erscheint sofort ein Tooltip: erst hinfahren, 3 px tiefer, dann klicken.
+# Kiste (QI Ernte Symbol) in Farbe vergleichen: pulsiert, echte Kiste 0,76-0,89, ohne Kiste höchstens 0,62
+# (in Graustufen 0,69, zu knapp). Die Maske des Monds vergleicht ohnehin immer in Farbe.
 repeat:
-  while:                             # vor jeder Runde muss Bild 1 oder sein Tooltip zu sehen sein
-    - QI/QI Produziere Güter 1 Maske.png      # nur Mond und "zz", Hintergrund transparent
-    - QI/QI Güter Produzieren 1a Tooltip.png   # steht die Maus schon darauf, verdeckt der Tooltip Bild 1
-    - QI/QI Güter Einsammeln Tooltip.png       # Gut wurde nicht eingesammelt, Tooltip "Klicke, um einzusammeln."
+  while:                             # vor jeder Runde muss Bild 1 oder noch eine Kiste zu sehen sein
+    - QI/QI Produziere Güter 1 Maske.png      # Mond mit "zz", Hintergrund transparent (wechselt je Welt)
+    - QI/QI Ernte Symbol.png                  # Gut wurde nicht eingesammelt, Kiste steht noch da
   max: $durchlaeufe                  # nach so vielen Runden ist Schluss
-  threshold: 0.7                     # Symbol 0,78-0,87 je nach Welt, ohne Symbol höchstens 0,25
+  threshold: 0.7                     # Mond: de7 0,99, de13 1,00, ohne Mond höchstens 0,48
+  grayscale: false
 
 steps:
-  - first_seen:                     # Tooltip zuerst: steht die Maus auf dem Gebäude, verdeckt er Bild 1 gleich
-      - if: QI/QI Güter Einsammeln Tooltip.png    # Klick unter dem Gut hat es nicht eingesammelt
-        threshold: 0.9               # die beiden Tooltips treffen sich gegenseitig mit 0,73, sich selbst mit 1,00
+  - first_seen:
+      - if: QI/QI Ernte Symbol.png   # Gut wurde nicht eingesammelt: erst einsammeln
         then:
-          - click_here: 1            # erst einsammeln ...
-          - wait_for: QI/QI Güter Produzieren 1a Tooltip.png
-            timeout: 3
-          - click_here: 1            # ... dann wie gewohnt "Produzieren" öffnen
-      - if: QI/QI Güter Produzieren 1a Tooltip.png
-        threshold: 0.9
-        then:
-          - click_here: 1            # Maus steht schon richtig: einfach dort klicken
-      - if: QI/QI Produziere Güter 1 Maske.png
-        then:
-          - click: QI/QI Produziere Güter 1 Maske.png
-            offset: [0, 1.6w]
-            think: 0                 # sofort, bevor ein Tooltip Bild 1 verdecken kann
+          - move: QI/QI Ernte Symbol.png   # direkt auf die Kiste (darunter aufs Gebäude sammelt nicht ein)
+            grayscale: false
             threshold: 0.7
+          - move_by: [0, 3]
+            think: 0
+          - click_here: 1
+            think: 0
+          - move_by: [0, 200]        # weg vom Gebäude; nächste Runde beginnt mit Mond oder noch einmal Kiste
+      - if: QI/QI Produziere Güter 1 Maske.png
+        then: []
     threshold: 0.7
-  - click: QI/QI Güter Produzieren 3a.png   # Bild 1 öffnet die vier Knöpfe "Produzieren"
-    offset: [314, 0]                     # Mitte des Knopfs ganz rechts
-    note: rechter Knopf
-  - click: QI/QI Ernte Gut.png             # erscheint ca. 1 s nach "Produzieren"; einsammeln, dann nächste Runde
-    timeout: 5
-    offset: [0, 1.6w]                     # 1,5 Bildbreiten unterhalb klicken, sonst überlagert der Tooltip
-    threshold: 0.7                        # Gut pulsiert: hell 0,76-0,82, dunkel 0,93; bester Fehltreffer 0,58
-    note: unter dem Gut
-  - wait: [0.8, 1.0]                # Maus steht jetzt auf dem Gebäude: warten, bis dessen Tooltip sicher da ist
+    grayscale: false
+  - move: QI/QI Produziere Güter 1 Maske.png
+    offset: [0, 1.6w]                # auf das Gebäude unter dem Symbol
+    think: 0
+    threshold: 0.7
+  - move_by: [0, 3]                  # dort erscheint sofort ein Tooltip: 3 px tiefer, sonst geht der Klick darauf
+    think: 0
+  - click_here: 1
+    think: 0
+  - wait_for: QI/QI Produziere Güter 2.png  # Auswahl mit vier Knöpfen "Produzieren" ist offen
+  - press: "4"                       # Taste 4 = rechter Knopf
+  - move: QI/QI Ernte Symbol.png           # Kiste erscheint einige s nach "Produzieren"; direkt darauf
+    timeout: 5                            # (unter der Kiste aufs Gebäude sammelt nicht ein, Lauf 16.11. 07:39)
+    grayscale: false
+    threshold: 0.7
+  - move_by: [0, 3]                  # Tooltip: 3 px tiefer, sonst geht der Klick darauf
+    think: 0
+  - click_here: 1                    # Gut einsammeln
+    think: 0
+  - move_by: [0, 200]               # kurz weg vom Gebäude: Tooltip verschwindet, Bild 1 ist für die nächste Runde frei

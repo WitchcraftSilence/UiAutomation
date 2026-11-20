@@ -4,8 +4,9 @@ hotkey: ctrl+alt+6
 # Eingespielter Ablauf: kaum Nachdenken, Reaktion wie bei einem erwarteten Dialog
 human:
   think_time: [0.05, 0.12]    # Pause vor jedem Schritt (s), Standard [0.4, 1.2]; eingeübte Tastenfolgen
-  move_speed: 1.2               # Maus 1,5× schneller als normal
-  hover_time: [0.1, 0.3]      # kürzer über dem Knopf verweilen, Standard [0.08, 0.25]
+  move_speed: 2.0               # Maus doppelt so schnell wie normal (vorher 1,2)
+  overshoot_chance: 0.1         # seltener übers Ziel hinaus, Standard 0,25
+  hover_time: [0.05, 0.12]      # kürzer über dem Knopf verweilen, Standard [0.08, 0.25]
 
 
 steps:
@@ -16,27 +17,32 @@ steps:
       - click: QI/QI Kampf.png
         threshold: 0.85
       - replace_damaged:        # beschädigte Einheiten gegen gesunde derselben Art tauschen
-          army: QI/QI Verteidigende Armee.png   # Armee, gefunden über die Überschrift
+          army:                                 # Armee, gefunden über die Überschrift; Raster aus dem ersten Bild
+            - QI/QI Verteidigende Armee.png
+            - QI/QI Angreifende Armee.png       # gleicher Dialog beim Angriff, nur andere Überschrift
           pool: QI/QI Available.png             # verfügbare Einheiten, gefunden über die Reiter
           empty: QI/QI Leeres Feld.png          # leeres Feld: nur auffüllen, nichts herausnehmen
         if_missing:             # kein gesunder Ersatz: Sequenz beenden
           - end: kein gesunder Ersatz
       - press: b                # Auto-Kampf
       - first_seen:             # nach dem Kampf kommt entweder das Ergebnis oder die zweite Welle
-          - if: QI/QI OK.png
+          - if: Gemeinsam/OK ESC.png
             then:
               - press: esc
           - if: Gemeinsam/QI Zweite Welle B.png
             then:
               - press: b        # Auto-Kampf für die zweite Welle
-              - wait_for: QI/QI OK.png
+              - wait_for: Gemeinsam/OK ESC.png
                 timeout: 5      # Kampf kann dauern
               - press: esc
         timeout: 3              # so lange dauert der erste Kampf höchstens
-      - repeat:                 # Belohnung schließen; Esc wiederholen, bis sie wirklich weg ist
-          while: QI/QI Belohnung ESC.png
-          timeout: 1            # so lange wird nach der Belohnung gesucht
-          max: 5
-        steps:
-          - press: esc
-            think: [0.4, 0.7]   # erst warten, bis der Dialog fertig eingeblendet ist
+      - if_seen: QI/QI Belohnung ESC.png   # kommt etwa 0,2 s nach dem Schließen des Kampfergebnisses
+        timeout: 0.7
+        then:
+          - repeat:             # Belohnung schließen; Esc wiederholen, bis sie wirklich weg ist
+              while: QI/QI Belohnung ESC.png
+              timeout: 0.3      # nach dem Esc nur kurz nachsehen (vorher 1 s je Runde)
+              max: 5
+            steps:
+              - press: esc
+                think: [0.3, 0.5]   # erst warten, bis der Dialog fertig eingeblendet ist

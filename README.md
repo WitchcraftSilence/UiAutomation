@@ -35,7 +35,7 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 
 | Aktion | Wert | Optionen |
 |---|---|---|
-| `click`, `double_click`, `right_click`, `move` | Bild | `offset: [dx, dy]`, `timeout`, `threshold`, `grayscale`, `check_end` |
+| `click`, `double_click`, `right_click`, `move` | Bild | `offset: [dx, dy]`, `timeout`, `threshold`, `grayscale`, `check_end`, `pick` (`links`, `rechts`, `oben`, `unten`) (bei mehreren gleichen Treffern den äußersten nehmen) |
 | `drag_over` | Bild oder Liste von Varianten | alle Treffer suchen, beim ersten die linke Maustaste drücken und mit gedrückter Taste von Treffer zu Treffer (jeweils zum nächsten) fahren, bis keiner mehr zu sehen ist; `timeout`, `threshold`, `grayscale` |
 | `wait_for`, `expect` | Bild | `timeout`, `threshold`, `grayscale`, `check_end` |
 | `expect_not` | Bild (wartet, bis es verschwunden ist) | `timeout`, `threshold`, `grayscale` |
@@ -43,6 +43,7 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 | `press` | `enter`, `tab`, `ctrl+s`, … | `times` |
 | `scroll` | Rasten (negativ = nach unten) | |
 | `wait` | Sekunden oder `[min, max]` | |
+| `move_by` | `[dx, dy]` in Pixeln | Maus von der aktuellen Stelle um so viel wegbewegen (ab 100 px Weg ±10 px Zufall, kürzere genau), z. B. damit ein Tooltip verschwindet und das Symbol darunter wieder zu sehen ist |
 | `click_here` | Anzahl Klicks (`0` = bis Stopp) | schnell dort klicken, wo die Maus steht (etwa 7–9 Klicks/s; die Maus verrutscht nur selten um 1 px; Tempo und Zittern über `rapid_*` in `human`) |
 | `negotiate` | Bilder `suggestions`, `menu`, `pay`, `success`, optional `failed` | `timeout`, siehe unten |
 | `collect_relics` | `relics` (Liste), `ok`, `marker`, `done`, optional `next`, `unless` | Level fertig: ist die Relikt-Anzeige farbig, die ganze Karte zeilenweise abziehen und Relikte einsammeln, dann im Abschlussdialog `next` klicken; `timeout`, siehe unten |
@@ -58,7 +59,7 @@ Vor jedem Schritt macht das Tool eine Denkpause (`think_time`). Mit `think` beko
     think: [0.05, 0.12]   # Sekunden oder [min, max]; 0 = keine Denkpause
 ```
 
-Hat ein Referenzbild transparente Pixel (PNG mit Alphakanal), zählen beim Vergleich nur die übrigen. So lässt sich ein Symbol ohne den Hintergrund suchen, der je nach Stelle im Spiel anders aussieht, z. B. `QI/QI Produziere Güter 1 Maske.png`. Die Treffer liegen dann niedriger, eine Schwelle um `0.7` ist üblich. Die Suche über das ganze Fenster dauert etwa viermal so lange.
+Hat ein Referenzbild transparente Pixel (PNG mit Alphakanal), zählen beim Vergleich nur die übrigen. So lässt sich ein Symbol ohne den Hintergrund suchen, der je nach Stelle im Spiel anders aussieht. Die Treffer liegen dann niedriger, eine Schwelle um `0.7` ist üblich. Die Suche über das ganze Fenster dauert etwa viermal so lange.
 
 `offset` wird von der Bildmitte aus gemessen, entweder in Pixeln (`[150, 0]`) oder in Vielfachen der Bildgröße: `[0, 1.5h]` heißt 1,5 × Bildhöhe nach unten, `[-0.5w, 0]` eine halbe Bildbreite nach links. Negative Werte zeigen nach links bzw. oben.
 
@@ -89,18 +90,22 @@ Die Leiste ist ein Fortschrittsbalken: hell = erreicht, dunkel = offen. Das Tool
 
 In `when` erlaubt: `x`, `total`, ganze Zahlen, `+ - * //` und Vergleiche (`>= > <= < == !=`).
 
+Statt eines Bildes geht auch `if_counter: grau`. Dann sucht das Tool ohne Vorlage die Leiste der eigenen Gilde: Sie ist als einzige neutral grau (gefüllt hellgrau, offen dunkelgrau), die Leisten anderer Gilden sind farbig. Erkannt wird sie an grauen Zeilen, die links und rechts an einen schwarzen Rand stoßen und mindestens 180 px breit sind. Das funktioniert bei jedem Zoom und jeder Gilde, und es braucht kein Referenzbild.
+
 ### Beschädigte Einheiten tauschen
 
 ```yaml
   - replace_damaged:
       army: Armee.png        # Bild des Armee-Bereichs; gefunden über die oberen 25 px (Überschrift)
+                             # oder mehrere: army: [Verteidigung.png, Angriff.png] (gleiches Raster,
+                             # andere Überschrift); die Plätze kommen aus dem ersten Bild
       pool: Verfuegbar.png   # Bild der verfügbaren Einheiten; gefunden über die oberen 40 px (Reiter)
       empty: Leer.png        # optional: Bild eines leeren Felds; solche Felder werden nur aufgefüllt
     if_missing:              # optional: kein gesunder Ersatz -> diese Schritte (sonst Fehler)
       - end: kein Ersatz
 ```
 
-Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (mindestens ein rotes Segment), sucht das Tool unter den verfügbaren Einheiten eine derselben Art mit vollem Balken. Nur wenn es einen Ersatz gibt, nimmt es die beschädigte Einheit heraus (Klick) und setzt den Ersatz ein (Klick). Nach jedem Klick prüft es, ob sich die Armee wirklich verändert hat. Ist ein Platz nach dem Ersetzen immer noch beschädigt, bricht es mit Fehler ab, statt endlos zu tauschen. Die Einheitenart wird über das Porträt verglichen und muss nicht vorher aufgenommen werden. Leere Felder (mit `empty`) werden zuerst aufgefüllt, mit einer gesunden Einheit, deren Art schon in der Armee steht.
+Für jede Einheit der Armee, deren Lebensbalken nicht voll ist (mindestens ein rotes Segment), sucht das Tool unter den verfügbaren Einheiten eine derselben Art mit vollem Balken. Leere Felder (mit `empty`) bekommen eine gesunde Einheit, deren Art schon in der Armee steht. Das Tool plant vorab, welche Einheit welchen Ersatz bekommt (jede Ersatz-Einheit nur einmal). Dann arbeitet es in zwei Durchgängen, damit die Maus nicht für jede Einheit hin- und herfährt: Erst nimmt es alle beschädigten Einheiten heraus, für die es Ersatz gibt, danach setzt es nacheinander alle Einheiten aus dem Pool ein. Nach jedem Klick prüft es, ob sich die Armee wirklich verändert hat. Ist danach immer noch eine Einheit beschädigt, bricht es mit Fehler ab, statt endlos zu tauschen. Fehlt für eine Einheit der Ersatz, tauscht es die übrigen und führt danach `if_missing` aus. Die Einheitenart wird über das Porträt verglichen und muss nicht vorher aufgenommen werden.
 
 ### Verhandlung (Gildenexpedition)
 
@@ -129,7 +134,7 @@ Je Runde liest das Tool die aktuelle (unterste) Zeile der Vorschlagstabelle. Sie
     timeout: 3
 ```
 
-Der Schritt darf mit offenem Abschlussdialog beginnen oder ohne, denn liegen noch Relikte auf der Karte, kommt der Dialog manchmal gar nicht. Ohne Dialog wartet er bis 1,5 s auf das `unless`-Bild. Erscheint es, tut er nichts. Sonst prüft er die Anzeige. Ist sie farbig (mittlere Sättigung ab 60, grau etwa 23, farbig etwa 114), schließt er einen offenen Dialog mit Esc und sucht die Relikte an der aktuellen Stelle. Dann zieht er die Karte mit gedrückter Maustaste (je 40 % der Fensterbreite bzw. -höhe) bis in die linke obere Ecke und fährt sie danach zeilenweise ab: bis zum rechten Rand, eine Zeile tiefer, bis zum linken Rand usw. Den Rand erkennt er daran, dass sich die Karte beim Ziehen kaum noch bewegt. Nach jedem Zug sucht er. Jedes Relikt wird angeklickt und mit `ok` quittiert, auch mehrere Dialoge nacheinander, aber nie der Abschlussdialog (erkannt an `next`). Danach prüft er die Anzeige: Ist sie noch farbig, geht die Suche an derselben Stelle weiter. Ist sie grau, wartet er bis `timeout` auf den Abschlussdialog und klickt `next`. Ist die ganze Karte abgesucht oder 60-mal gezogen und die Anzeige noch farbig, schlägt der Schritt fehl.
+Der Schritt darf mit offenem Abschlussdialog beginnen oder ohne, denn liegen noch Relikte auf der Karte, kommt der Dialog manchmal gar nicht. Ohne Dialog wartet er bis 1,5 s auf das `unless`-Bild. Erscheint es, tut er nichts. Sonst prüft er die Anzeige. Ist sie farbig (mittlere Sättigung ab 60, grau etwa 23, farbig etwa 114), schließt er einen offenen Dialog mit Esc und sucht die Relikte an der aktuellen Stelle. Dann zieht er die Karte mit gedrückter Maustaste (je 40 % der Fensterbreite bzw. -höhe) bis in die linke obere Ecke und fährt sie danach zeilenweise ab: bis zum rechten Rand, eine Zeile tiefer, bis zum linken Rand usw. Den Rand erkennt er daran, dass sich die Karte beim Ziehen kaum noch bewegt. Nach jedem Zug sucht er. Jedes Relikt wird angeklickt und mit `ok` quittiert, auch mehrere Dialoge nacheinander, aber nie der Abschlussdialog (erkannt an `next`). Kommt kein `ok`, liegt das Relikt noch hinter einem Kampf: Das Level ist nicht fertig, und der Schritt endet ohne Fehler. Danach prüft er die Anzeige: Ist sie noch farbig, geht die Suche an derselben Stelle weiter. Ist sie grau, wartet er bis `timeout` auf den Abschlussdialog und klickt `next`. Ist die ganze Karte abgesucht oder 60-mal gezogen und die Anzeige noch farbig, schlägt der Schritt fehl.
 
 ### Einstellungen im Steuerfenster
 
@@ -192,6 +197,7 @@ repeat:
   while: bild.png   # vor jeder Runde: ist das Bild zu sehen, laufen die steps erneut
                     # oder mehrere: while: [a.png, b.png], dann reicht eines davon
   until: ende.png   # optional: erscheint dieses Bild, endet der Ablauf sofort erfolgreich
+                    # oder mehrere: until: [a.png, b.png], dann reicht eines davon
   timeout: 5        # so lange wird vor jeder Runde darauf gewartet (Standard 5 s)
   max: 50           # optional, 0 = unbegrenzt; auch $einstellung aus params
   grayscale: false  # optional, siehe unten

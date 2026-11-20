@@ -22,13 +22,13 @@ steps:
     offset: [0, 83]             # unterster der drei Knöpfe
     note: unterer Knopf
     grayscale: false            # nicht mit dem grauen End-Screen verwechseln
-  - wait_for: PvP/PvP2 EinheitenErsetzen R.png
+  - wait_for: Gemeinsam/EinheitenErsetzen R.png
   - press: r
   - press: b
-  - wait_for: PvP/PvP4 OK ESC.png
+  - wait_for: Gemeinsam/OK ESC.png
     timeout: 30                 # Kampf kann dauern
   - press: esc
-  - expect_not: PvP/PvP4 OK ESC.png   # warten, bis der Dialog wirklich zu ist
+  - expect_not: Gemeinsam/OK ESC.png   # warten, bis der Dialog wirklich zu ist
     note: Dialog geschlossen
   - if_seen: Gemeinsam/pvp5 Optional ESC.png  # kommt nur manchmal
     timeout: 3                  # so lange wird höchstens darauf gewartet

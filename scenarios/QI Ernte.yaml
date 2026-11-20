@@ -13,8 +13,10 @@ human:
 repeat:
   while: QI/QI Ernte Symbol.png
   timeout: 2
-  threshold: 0.8
+  threshold: 0.7               # in Farbe: Kiste 0,76-0,89 (pulsiert), ohne Kiste höchstens 0,62
+  grayscale: false
 
 steps:
   - drag_over: QI/QI Ernte Symbol.png
-    threshold: 0.8              # Trainingsbild: alle 11 Güter 0,84-1,00, bester Fehltreffer 0,68
+    grayscale: false
+    threshold: 0.7
