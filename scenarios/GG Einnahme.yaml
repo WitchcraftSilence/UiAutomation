@@ -3,10 +3,10 @@ hotkey: ctrl+alt+5
 
 # Eingespielter Ablauf: kaum Nachdenken, Reaktion wie bei einem erwarteten Dialog
 human:
-  think_time: [0.02, 0.06]    # Pause vor jedem Schritt (s), vorher [0.05, 0.12]
+  think_time: [0.01, 0.02]    # Pause vor jedem Schritt (s), vorher [0.05, 0.12]
   typing_delay: [0.02, 0.06]  # Pause nach jedem Tastendruck, vorher [0.06, 0.15]
   move_speed: 1.2               # Maus 1,2× schneller als normal
-  hover_time: [0.1, 0.3]      # kürzer über dem Knopf verweilen, Standard [0.08, 0.25]
+  hover_time: [0.01, 0.1]      # kürzer über dem Knopf verweilen, Standard [0.08, 0.25]
 
 matching:
   poll_interval: 0.05         # Pause zwischen zwei Bildsuchen (s), Standard 0.25: reagiert schneller
@@ -21,10 +21,16 @@ steps:
     steps:                      # gleiche Höhe wie "repeat:"
       - press: a
       - wait_for: Gemeinsam/EinheitenErsetzen R.png
-      - press: r
-      - press: b                # Kampfrunde 1
+      - press: r                # ersetzen
+      - press: b                # Kampfrunde 1, ohne Denkpause (gleicher Dialog). Nicht "r b" abrollen:
+        think: 0                # dabei wurde b etwa jede 5. Runde verschluckt (24.11.), der Dialog blieb offen
       - expect_not: Gemeinsam/EinheitenErsetzen R.png   # erst weiter, wenn der Armee-Dialog zu ist (der Knopf steht nur dort;
         think: 0                                        # Auto-Kampf steht auch im Dialog der zweiten Welle)
+        timeout: 1.5            # schließt sonst nach ~0,4 s
+        if_stuck:               # noch offen: b verschluckt (kommt auch mit getrennten Tasten vor, 24.11. Runde 33)
+          - press: b
+          - expect_not: Gemeinsam/EinheitenErsetzen R.png
+            think: 0
       - first_seen:             # nach Runde 1 kommt entweder das Ergebnis oder Kampfrunde 2
           - if: Gemeinsam/OK ESC.png   # fertig nach einer Runde
             then:
@@ -32,10 +38,13 @@ steps:
           - if: Gemeinsam/AutoKampf B.png # es gibt eine zweite Runde
             then:
               - press: b        # Kampfrunde 2
-              - if_seen: Gemeinsam/AutoKampf B.png   # Taste manchmal verschluckt: Dialog noch da, nochmal b
-                timeout: 0.5
-                then:
+              - expect_not: Gemeinsam/ZweiteWelle.png      # "Zurückziehen" steht nur im Dialog der zweiten Welle
+                think: 0
+                timeout: 1.5
+                if_stuck:       # Taste verschluckt: Dialog noch da, nochmal b
                   - press: b
+                  - expect_not: Gemeinsam/ZweiteWelle.png
+                    think: 0
               - wait_for: Gemeinsam/OK ESC.png
                 timeout: 30     # Kampf kann dauern
                 check_end: true # derselbe OK-Knopf steht im Niederlage-Dialog

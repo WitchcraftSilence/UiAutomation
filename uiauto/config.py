@@ -45,6 +45,10 @@ DEFAULTS = {
         "double_click_gap": [0.08, 0.16],
         "typing_delay": [0.06, 0.20],   # Abstand zwischen Zeichen
         "key_hold": [0.03, 0.09],
+        # press: "r b" rollt die Tasten wie mit zwei Fingern ab (gemessen an einem Menschen:
+        # r->b Median 86 ms, gehalten 90-200 ms, die Tasten überlappen meist um 40-110 ms)
+        "roll_gap": [0.06, 0.11],       # vom Drücken einer Taste bis zum Drücken der nächsten
+        "roll_hold": [0.09, 0.16],      # wie lange jede Taste gedrückt bleibt
         "typing_pause_chance": 0.05,    # gelegentliches kurzes Stocken beim Tippen
         "typing_pause": [0.25, 0.8],
         "scroll_delay": [0.04, 0.14],   # Abstand zwischen Mausrad-Rasten

@@ -15,7 +15,7 @@ python -m venv .venv
 .venv\Scripts\python.exe run.pyw       # Start mit Konsole (Tracebacks sichtbar)
 ```
 
-Es gibt keine Tests, keinen Linter und keinen Build. Laufzeitfehler landen in `logs/uiauto.log`, Ergebnisse eines Ablaufs in `reports/<zeit>_<sequenz>/bericht.html`.
+Es gibt keine Tests, keinen Linter und keinen Build. Laufzeitfehler landen in `logs/uiauto.log`, Ergebnisse eines Ablaufs in `reports/<zeit>_<sequenz>.html` (Screenshots daneben mit demselben Anfang).
 
 Ein Szenario lässt sich ohne GUI prüfen:
 `.venv\Scripts\python.exe -c "from uiauto import config, scenario; c=config.load(); print(scenario.load_all(c['paths']['scenarios'], c['paths']['images']))"`

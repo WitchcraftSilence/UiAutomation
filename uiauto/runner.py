@@ -266,7 +266,12 @@ class Runner:
         if a == "end":
             raise EndReached(f"Ende: {v}" if v not in (None, True) else "end-Schritt erreicht")
         if a == "expect_not":
-            self._wait_image(v, timeout, threshold, present=False, grayscale=gs)
+            try:
+                self._wait_image(v, timeout, threshold, present=False, grayscale=gs)
+            except StepFailed:
+                if not opts.get("if_stuck"):    # z. B. Taste verschluckt: if_stuck-Schritte statt Fehler
+                    raise
+                return f"nach {timeout:.1f} s noch sichtbar", opts["if_stuck"]
             return "nicht sichtbar"
         if a == "type":
             human.type_text(str(v))
@@ -973,6 +978,7 @@ class Runner:
                 x, y, w, h = mark
                 cv2.rectangle(shot, (x - region[0], y - region[1]),
                               (x - region[0] + w, y - region[1] + h), (0, 0, 255), 2)
+            name = f"{self._report_prefix}_{name}"
             screen.imwrite(run_dir / name, shot)
             return name
         except Exception:  # Screenshot darf den Bericht nicht verhindern
@@ -1144,8 +1150,10 @@ class Runner:
         self.matcher.grayscale = self.matching["grayscale"]
         result = RunResult(scenario.name, datetime.now())
         safe_name = re.sub(r"[^\w\-]+", "_", scenario.name)
-        run_dir = self.cfg["paths"]["reports"] / f"{result.started:%Y%m%d_%H%M%S}_{safe_name}"
+        # Alles direkt in reports/, Dateinamen beginnen mit Zeit und Sequenz (nach Zeit sortierbar)
+        run_dir = self.cfg["paths"]["reports"]
         run_dir.mkdir(parents=True, exist_ok=True)
+        self._report_prefix = f"{result.started:%Y%m%d_%H%M%S}_{safe_name}"
         t_start = time.perf_counter()
 
         def on_resume():
@@ -1176,7 +1184,7 @@ class Runner:
 
         self.control.on_resume = None
         result.duration = time.perf_counter() - t_start
-        result.report_path = run_dir / "bericht.html"
+        result.report_path = run_dir / f"{self._report_prefix}.html"
         report.write(result, result.report_path)
         log.info("Szenario '%s' beendet: %s – %s", scenario.name, result.status, result.message)
         return result

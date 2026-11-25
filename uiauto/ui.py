@@ -10,6 +10,15 @@ COLORS = {"idle": "#2da44e", "running": "#cf222e", "paused": "#d4a72c"}
 TITLES = {"idle": "bereit", "running": "läuft", "paused": "pausiert"}
 
 
+def _common_prefix(keys):
+    """Längster gemeinsamer Anfang bis einschließlich des letzten '+', z. B. 'ctrl+alt+'."""
+    first = keys[0]
+    n = 0
+    while n < len(first) and all(len(k) > n and k[n] == first[n] for k in keys):
+        n += 1
+    return first[:first.rfind("+", 0, n) + 1] if n else ""
+
+
 class ControlWindow:
     def __init__(self, root, app):
         self.app = app
@@ -23,11 +32,11 @@ class ControlWindow:
         self._hidden_for_record = False
 
         style = ttk.Style(self.win)
-        style.configure("Scenario.TButton", anchor="w", padding=(8, 4))
+        style.configure("Scenario.TButton", anchor="e", padding=(6, 1))
         style.configure("Hotkey.TLabel", foreground="#6e7781")
 
-        pad = {"padx": 8, "pady": 4}
-        outer = ttk.Frame(self.win, padding=8)
+        pad = {"padx": 4, "pady": 3}
+        outer = ttk.Frame(self.win, padding=4)
         outer.pack(fill="both", expand=True)
 
         # Status: farbiger Punkt + Text
@@ -40,27 +49,31 @@ class ControlWindow:
         self.status.pack(side="left", padx=(6, 0))
 
         # Sequenzen
-        self.list_frame = ttk.LabelFrame(outer, text="Sequenzen", padding=6)
+        self.list_frame = ttk.LabelFrame(outer, text="Sequenzen", padding=4)
         self.list_frame.pack(fill="x", **pad)
+        self.list_frame.columnconfigure(0, weight=1)
 
         # Ablauf steuern
+        # Ablauf steuern, Hotkey jeweils klein unter dem Knopf
         run = ttk.Frame(outer)
         run.pack(fill="x", **pad)
+        run.columnconfigure((0, 1), weight=1, uniform="run")
         hk = app.cfg["hotkeys"]
         self.pause_btn = ttk.Button(run, text="Pause", command=self._toggle_pause)
-        self.pause_btn.pack(side="left", expand=True, fill="x")
+        self.pause_btn.grid(row=0, column=0, sticky="ew")
         self.stop_btn = ttk.Button(run, text="Stopp", command=app.control.stop)
-        self.stop_btn.pack(side="left", expand=True, fill="x", padx=(6, 0))
-        ttk.Label(outer, text=f"Pause {hk['pause']} · Stopp {hk['stop']}", style="Hotkey.TLabel").pack(**pad)
+        self.stop_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        ttk.Label(run, text=hk["pause"], style="Hotkey.TLabel").grid(row=1, column=0)
+        ttk.Label(run, text=hk["stop"], style="Hotkey.TLabel").grid(row=1, column=1, padx=(4, 0))
 
         # Werkzeuge
         tools = ttk.Frame(outer)
         tools.pack(fill="x", **pad)
         ttk.Button(tools, text="Referenzbild aufnehmen", command=app.record).pack(fill="x")
         self.report_btn = ttk.Button(tools, text="Letzten Bericht öffnen", command=app.open_report)
-        self.report_btn.pack(fill="x", pady=(4, 0))
+        self.report_btn.pack(fill="x", pady=(3, 0))
         row = ttk.Frame(tools)
-        row.pack(fill="x", pady=(4, 0))
+        row.pack(fill="x", pady=(3, 0))
         folders = ttk.Menubutton(row, text="Ordner")
         menu = tk.Menu(folders, tearoff=False)
         for label, key in (("Szenarien", "scenarios"), ("Bilder", "images"),
@@ -68,11 +81,11 @@ class ControlWindow:
             menu.add_command(label=label, command=lambda k=key: app.open_folder(k))
         folders["menu"] = menu
         folders.pack(side="left", expand=True, fill="x")
-        ttk.Button(row, text="Neu laden", command=app.reload).pack(side="left", expand=True, fill="x", padx=(6, 0))
+        ttk.Button(row, text="Neu laden", command=app.reload).pack(side="left", expand=True, fill="x", padx=(4, 0))
 
         bottom = ttk.Frame(outer)
         bottom.pack(fill="x", **pad)
-        ttk.Checkbutton(bottom, text="Immer im Vordergrund", variable=self.topmost,
+        ttk.Checkbutton(bottom, text="Im Vordergrund", variable=self.topmost,
                         command=lambda: self.win.attributes("-topmost", self.topmost.get())).pack(side="left")
         ttk.Button(bottom, text="Beenden", command=app.quit).pack(side="right")
 
@@ -86,16 +99,21 @@ class ControlWindow:
             w.destroy()
         self._scenario_buttons = []
         self._param_vars = []
+        self._row = 0
         if not self.app.scenarios:
-            ttk.Label(self.list_frame, text="(keine Sequenzen)").pack(anchor="w")
+            ttk.Label(self.list_frame, text="(keine Sequenzen)").grid(row=0, column=0, sticky="w")
+        # Gemeinsamen Anfang der Hotkeys (meist "ctrl+alt+") nur einmal in der Überschrift zeigen
+        keys = [s.hotkey for s in self.app.scenarios if s.hotkey]
+        prefix = _common_prefix(keys) if len(keys) > 1 else ""
+        self.list_frame.configure(text=f"Sequenzen  ({prefix}…)" if prefix else "Sequenzen")
         for s in self.app.scenarios:
-            row = ttk.Frame(self.list_frame)
-            row.pack(fill="x", pady=1)
-            btn = ttk.Button(row, text=s.name, style="Scenario.TButton", width=22,
+            btn = ttk.Button(self.list_frame, text=s.name, style="Scenario.TButton",
                              command=lambda s=s: self.app.start_scenario(s))
-            btn.pack(side="left", fill="x", expand=True)
+            btn.grid(row=self._row, column=0, sticky="ew", pady=1)
             if s.hotkey:
-                ttk.Label(row, text=s.hotkey, style="Hotkey.TLabel", width=12).pack(side="left", padx=(6, 0))
+                ttk.Label(self.list_frame, text=s.hotkey[len(prefix):], style="Hotkey.TLabel").grid(
+                    row=self._row, column=1, sticky="w", padx=(4, 0))
+            self._row += 1
             self._scenario_buttons.append(btn)
             for name, spec in s.params.items():
                 self._param_row(s, name, spec)
@@ -104,7 +122,8 @@ class ControlWindow:
     def _param_row(self, scenario, name, spec):
         """Auswahlknöpfe für eine Einstellung unter der Sequenz; die Wahl gilt auch für den Hotkey."""
         row = ttk.Frame(self.list_frame)
-        row.pack(fill="x", padx=(12, 0), pady=(0, 3))
+        row.grid(row=self._row, column=0, columnspan=2, sticky="w", padx=(8, 0), pady=(0, 2))
+        self._row += 1
         current = self.app.params_for(scenario)[name]
         var = tk.StringVar(value=str(current))
         by_text = {str(o): o for o in spec["options"]}
@@ -114,7 +133,7 @@ class ControlWindow:
         var.trace_add("write", chosen)
         self._param_vars.append(var)        # Referenz halten, sonst räumt Python die Variable weg
         for o in spec["options"]:
-            ttk.Radiobutton(row, text=str(o), value=str(o), variable=var).pack(side="left", padx=(0, 6))
+            ttk.Radiobutton(row, text=str(o), value=str(o), variable=var).pack(side="left", padx=(0, 2))
 
     def refresh(self):
         """Status und aktive/ausgegraute Schaltflächen an den Zustand anpassen."""

@@ -36,7 +36,7 @@ ACTIONS = {
     "repeat": False,        # verschachtelte Schleife: Wert wie repeat der Sequenz, Schritte unter 'steps'
 }
 OPTIONS = {"timeout", "threshold", "offset", "times", "note", "then", "grayscale", "skip_if", "steps", "think",
-           "when", "if_missing", "check_end", "pick"}
+           "when", "if_missing", "check_end", "pick", "if_stuck"}
 
 
 class ScenarioError(Exception):
@@ -114,7 +114,10 @@ def _parse_step(raw, where, images_dir):
     elif ACTIONS[action] and not (images_dir / str(value)).exists():
         raise ScenarioError(f"{where}: Bild nicht gefunden: {images_dir / str(value)}")
     if action == "press":
-        for key in str(value).lower().split("+"):
+        seq = str(value).lower().split()
+        if len(seq) > 1 and any("+" in k for k in seq):
+            raise ScenarioError(f"{where}: abgerollte Tasten ('r b') dürfen keine Kombination mit + enthalten")
+        for key in (seq[0].split("+") if len(seq) == 1 else seq):
             if key.strip() not in pyautogui.KEYBOARD_KEYS:
                 raise ScenarioError(f"{where}: unbekannte Taste '{key}'")
     if "think" in options:
@@ -226,6 +229,13 @@ def _parse_step(raw, where, images_dir):
                                 f"(auf gleicher Höhe wie 'repeat', nicht darunter eingerückt)")
         options["steps"] = [_parse_step(r, f"{where} / steps #{j + 1}", images_dir)
                             for j, r in enumerate(steps)]
+    if "if_stuck" in options:
+        if action != "expect_not":
+            raise ScenarioError(f"{where}: 'if_stuck' gibt es nur bei expect_not")
+        if not isinstance(options["if_stuck"], list) or not options["if_stuck"]:
+            raise ScenarioError(f"{where}: if_stuck erwartet eine Liste von Schritten")
+        options["if_stuck"] = [_parse_step(r, f"{where} / if_stuck #{j + 1}", images_dir)
+                               for j, r in enumerate(options["if_stuck"])]
     if action != "repeat" and "steps" in options:
         raise ScenarioError(f"{where}: 'steps' gibt es nur beim repeat-Schritt")
     if action not in ("if_seen", "if_counter") and "then" in options:

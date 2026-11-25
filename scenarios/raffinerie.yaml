@@ -10,9 +10,9 @@ hotkey: ctrl+alt+r
 # Welches Gebäude gewählt ist, zeigt der Name neben dem Dropdown (Bilder Raffinerie/<Kürzel>.png, nur der
 # Name ohne "- Stufe …"). So hängt nichts an der Reihenfolge in der Liste.
 # Gebäude wechseln per Tastatur: Klick auf das Dropdown öffnet die Liste, die Leertaste schließt sie wieder,
-# die Tastatur bleibt aber beim Dropdown. Pfeil runter wählt dann das nächste Gebäude. Der Klick kommt vor
-# jedem Gebäude, denn nach einem Klick auf den OK-Dialog kommen Pfeiltasten sonst nicht mehr an
-# (Lauf 19.11. 21:05: Royal Albert Hall nie gewählt).
+# die Tastatur bleibt aber beim Dropdown. Pfeil runter wählt dann das nächste Gebäude. Der Klick ist nur
+# nach dem Veredeln nötig: Nach einem Klick auf den OK-Dialog kommen Pfeiltasten sonst nicht mehr an
+# (Lauf 19.11. 21:05: Royal Albert Hall nie gewählt). Ohne Veredeln geht es direkt mit Pfeil runter weiter.
 human:
   think_time: [0.1, 0.25]
   move_speed: 1.2
@@ -46,6 +46,9 @@ steps:
                     timeout: 1
                     then:
                       - click: Gemeinsam/OK Braun ESC.png
+                  # nach den Klicks kommen Pfeiltasten nicht mehr an: Tastatur zurück zum Dropdown
+                  - click: Raffinerie/BPRaf 4 Dropdown Click.png   # Liste geht auf
+                  - press: space                                   # Liste zu, Tastatur bleibt
               - if: Raffinerie/BPRaf 7 Veredeln Click.png  # schon veredelt (nicht mehr 5): nichts tun
                 then: []
             timeout: 3
@@ -94,12 +97,13 @@ steps:
 
   # Die übrigen Gebäude: 20 Bilder, also noch 19× weiter. Neues Gebäude: Bild aufnehmen, oben eintragen
   # und max erhöhen. Am Listenende ändert Pfeil runter nichts mehr, zu viele Runden schaden also nicht.
+  # Einmal sicherstellen, dass die Tastatur beim Dropdown ist (Arche per Listenklick gewählt, evtl. nicht veredelt)
+  - click: Raffinerie/BPRaf 4 Dropdown Click.png
+  - press: space
   - repeat:
       while: Raffinerie/BPRaf 4 Dropdown Click.png    # Dialog noch offen
       max: 19
-    steps:
-      - click: Raffinerie/BPRaf 4 Dropdown Click.png  # Tastatur zum Dropdown (Liste geht auf)
-      - press: space                                  # Liste zu, Tastatur bleibt
+    steps:                                            # Tastatur ist beim Dropdown (s. oben)
       - press: down                                   # nächstes Gebäude
       - wait: [0.6, 0.9]
       - first_seen: *gebaeude

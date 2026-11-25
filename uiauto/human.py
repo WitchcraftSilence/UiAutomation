@@ -238,7 +238,16 @@ class Human:
             previous = ch
 
     def press(self, keys, times=1):
-        """keys z. B. 'enter' oder 'ctrl+shift+s' (Namen wie in pyautogui.KEYBOARD_KEYS)."""
+        """keys z. B. 'enter' oder 'ctrl+shift+s' (Namen wie in pyautogui.KEYBOARD_KEYS).
+
+        Mehrere Tasten mit Leerzeichen ('r b') werden abgerollt wie mit zwei Fingern: die nächste
+        Taste kommt roll_gap nach der vorigen, jede bleibt roll_hold gedrückt, sie dürfen überlappen.
+        """
+        seq = keys.lower().split()
+        if len(seq) > 1:
+            for _ in range(times):
+                self._roll(seq)
+            return
         parts = [k.strip().lower() for k in keys.split("+")]
         for _ in range(times):
             self.control.check()
@@ -249,3 +258,24 @@ class Human:
                 pyautogui.keyUp(k, _pause=False)
                 time.sleep(uniform(self.cfg["key_hold"]) / 2)
             self.control.sleep(uniform(self.cfg["typing_delay"]))
+
+    def _roll(self, seq):
+        """Tasten nacheinander drücken, ohne auf das Loslassen der vorigen zu warten."""
+        self.control.check()
+        events, t = [], 0.0
+        for i, k in enumerate(seq):
+            if i:
+                t += uniform(self.cfg["roll_gap"])
+            events.append((t, 0, k))                                # 0 = drücken
+            events.append((t + uniform(self.cfg["roll_hold"]), 1, k))  # 1 = loslassen
+        events.sort()
+        start = time.perf_counter()
+        for at, up, k in events:
+            wait = start + at - time.perf_counter()
+            if wait > 0:
+                time.sleep(wait)
+            if up:
+                pyautogui.keyUp(k, _pause=False)
+            else:
+                pyautogui.keyDown(k, _pause=False)
+        self.control.sleep(uniform(self.cfg["typing_delay"]))

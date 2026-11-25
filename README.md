@@ -38,9 +38,9 @@ Sequenzen sind YAML-Dateien unter `scenarios/`, siehe `scenarios/beispiel.yaml.e
 | `click`, `double_click`, `right_click`, `move` | Bild | `offset: [dx, dy]`, `timeout`, `threshold`, `grayscale`, `check_end`, `pick` (`links`, `rechts`, `oben`, `unten`) (bei mehreren gleichen Treffern den äußersten nehmen) |
 | `drag_over` | Bild oder Liste von Varianten | alle Treffer suchen, beim ersten die linke Maustaste drücken und mit gedrückter Taste von Treffer zu Treffer (jeweils zum nächsten) fahren, bis keiner mehr zu sehen ist; `timeout`, `threshold`, `grayscale` |
 | `wait_for`, `expect` | Bild | `timeout`, `threshold`, `grayscale`, `check_end` |
-| `expect_not` | Bild (wartet, bis es verschwunden ist) | `timeout`, `threshold`, `grayscale` |
+| `expect_not` | Bild (wartet, bis es verschwunden ist) | `timeout`, `threshold`, `grayscale`, `if_stuck` (Liste von Schritten: ist das Bild nach `timeout` noch da, werden sie ausgeführt statt eines Fehlers, z. B. eine verschluckte Taste nochmal drücken und erneut `expect_not`) |
 | `type` | Text (Umlaute möglich) | |
-| `press` | `enter`, `tab`, `ctrl+s`, … | `times` |
+| `press` | `enter`, `tab`, `ctrl+s`, …; mehrere Tasten mit Leerzeichen (`r b`) werden wie mit zwei Fingern abgerollt (Abstand `roll_gap`, Haltezeit `roll_hold` in `human`, die Tasten dürfen überlappen) | `times` |
 | `scroll` | Rasten (negativ = nach unten) | |
 | `wait` | Sekunden oder `[min, max]` | |
 | `move_by` | `[dx, dy]` in Pixeln | Maus von der aktuellen Stelle um so viel wegbewegen (ab 100 px Weg ±10 px Zufall, kürzere genau), z. B. damit ein Tooltip verschwindet und das Symbol darunter wieder zu sehen ist |
@@ -241,7 +241,7 @@ Soll eine ganze Sequenz in Farbe vergleichen, geht auch ein Block `matching: {gr
 
 ## Ergebnisse
 
-- Bericht: `reports/<zeit>_<sequenz>/bericht.html`, bei Fehlern mit Screenshot.
+- Bericht: `reports/<zeit>_<sequenz>.html`, bei Fehlern mit Screenshot `reports/<zeit>_<sequenz>_fehler_….png` (alles direkt in `reports/`, nach Zeit sortierbar).
 - Log: `logs/uiauto.log`.
 
 Referenzbilder sollte man mit derselben Windows-Skalierung, demselben Firefox-Zoom und demselben Theme aufnehmen, mit denen später getestet wird.
